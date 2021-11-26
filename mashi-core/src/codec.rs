@@ -1,4 +1,4 @@
-use crate::Predictor;
+use crate::predictor::Predictor;
 use alloc::alloc::{alloc_zeroed, Layout};
 
 // This arithmetic coder is based on the one in Crinkler, see https://github.com/runestubbe/Crinkler for details!
@@ -49,8 +49,8 @@ impl<'a> Encoder<'a> {
 
     fn encode_bit(&mut self, y: u32) {
         let mut prob = 4095 - self.predictor.p();
-        if prob == 0 {
-            prob = 1
+        if prob < 2048 {
+            prob += 1
         }
         //println!("Encoding bit {} with probability: {:?}", bit, prob);
         debug_assert!(prob > 0 && prob < 4096);
@@ -152,8 +152,8 @@ impl<'a> Decoder<'a> {
         }
 
         let mut prob = 4095 - self.predictor.p();
-        if prob == 0 {
-            prob = 1
+        if prob < 2048 {
+            prob += 1
         }
 
         let threshold = ((self.interval_size as u64 * prob as u64) >> 12) as u32;

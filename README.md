@@ -19,7 +19,7 @@ Compressing `tests/test.wasm` with various compressors:
 
 | Compressor | Size | Command-line |
 | - | - | - |
-| mashi | 12084 | `mashi-cli compress` |
+| mashi | 12083 | `mashi-cli compress` |
 | zpaq | 13004 | `zpaq a -m5` |
 | xz | 13522 | `xz --format=raw --lzma2=preset=9e` |
 | zstd | 14536 | `zstd --ultra -22` |

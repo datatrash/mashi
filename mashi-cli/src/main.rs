@@ -123,7 +123,7 @@ mod tests {
 
         // Did we compress the file successfully?
         let metadata = fs::metadata(&compressed_dst_path)?;
-        assert_eq!(metadata.len(), 12084);
+        assert_eq!(metadata.len(), 12083);
 
         // Decompress it, first removing the original
         if dst_path.exists() {
