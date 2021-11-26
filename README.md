@@ -1,4 +1,4 @@
-# MASHI
+# MASHI まし
 
 A 100% no-std compatible Rust implementation of a [PAQ](http://mattmahoney.net/dc) style arithmetic coding, context mixing compressor. Its intended use case is compressing 64k demos, but whatever works for you!
 
