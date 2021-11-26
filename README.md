@@ -26,6 +26,6 @@ Since the original PAQ compressors are GPL licensed be aware that Mashi is also 
 
 ### Credits
 * The compression model is based on the PAQ work by [Matt Mahoney](http://mattmahoney.net/dc) et al.
-* The artihmetic coder is a port of the one in [Crinkler](https://github.com/runestubbe/Crinkler), done by Mentor and Blueberry.
+* The arithmetic coder is a port of the one in [Crinkler](https://github.com/runestubbe/Crinkler), done by Mentor and Blueberry.
 * Wrapping my head around all of this was aided by the videos of [Jeff Miller](http://jwmi.github.io/) and the compression seminar by [Ferris](https://github.com/yupferris) at Revision 2020.
 * Some of my porting efforts were eased by the work done by [aufdj](https://github.com/aufdj).
