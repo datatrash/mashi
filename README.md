@@ -10,6 +10,10 @@ To build and use the CLI:
 * `target/release/mashi-cli compress tests/test.wasm`
 * `target/release/mashi-cli decompress tests/test.wasm.mashi`
 
+### Cargo features
+* Use the `encoder` feature if you want to include the encoder
+* Use the `std` feature to enable std support (e.g. for running the unit tests)
+
 ### Unscientific benchmarks
 Compressing `tests/test.wasm` with various compressors:
 
