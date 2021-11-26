@@ -17,13 +17,14 @@ To build and use the CLI:
 ### Unscientific benchmarks
 Compressing `tests/test.wasm` with various compressors:
 
-| Compressor | Size | Command-line |
-| - | - | - |
-| mashi | 12083 | `mashi-cli compress` |
-| zpaq | 13004 | `zpaq a -m5` |
-| xz | 13522 | `xz --format=raw --lzma2=preset=9e` |
-| zstd | 14536 | `zstd --ultra -22` |
-| gzip | 15629 | `gzip --9` |
+| Compressor | % | Size | Command-line |
+| - | - | - | - |
+| mashi | 34.4% | 12083 | `mashi-cli compress` |
+| zpaq | 37.0% | 13004 | `zpaq a -m5` |
+| xz | 38.5% | 13522 | `xz --format=raw --lzma2=preset=9e` |
+| zstd | 41.3% | 14536 | `zstd --ultra -22` |
+| gzip | 44.5% | 15629 | `gzip --9` |
+| original | 100% | 35151 | |
 
 ### License
 Since the original PAQ compressors are GPL licensed be aware that Mashi is also GPL licensed.
