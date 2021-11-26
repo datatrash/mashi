@@ -1,0 +1,10 @@
+[package]
+name = "mashi-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+argh = "0.1"
+fs-err = "2"
+mashi-core = { path = "../mashi-core" }

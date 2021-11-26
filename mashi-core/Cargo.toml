@@ -1,0 +1,11 @@
+[package]
+name = "mashi-core"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["encoder", "std"]
+encoder = []
+std = []
+
+[dependencies]
