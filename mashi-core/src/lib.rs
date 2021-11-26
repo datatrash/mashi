@@ -7,3 +7,5 @@ extern crate alloc;
 
 pub mod codec;
 mod predictor;
+
+pub use codec::*;
