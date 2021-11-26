@@ -2,6 +2,13 @@
 name = "mashi-core"
 version = "0.1.0"
 edition = "2021"
+license-file = "../LICENSE"
+authors = ["Roy Jacobs <roy.jacobs@gmail.com>"]
+repository = "https://github.com/datatrash/mashi"
+readme = "../README.md"
+keywords = ["paq", "compression", "no-std", "demoscene"]
+homepage = "https://github.com/datatrash/mashi"
+description = "A 100% Rust no-std implementation of an arithmetic coding, context mixing compressor based on PAQ"
 
 [features]
 default = ["encoder", "std"]
