@@ -1,0 +1,13 @@
+[package]
+name = "mashi-test-suite"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.18.3"
+mashi-core = { path = "../mashi-core" }
+wast = "244.0.0"

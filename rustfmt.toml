@@ -1,0 +1,4 @@
+fn_args_layout = "Compressed"
+imports_granularity = "Module"
+max_width = 150
+reorder_impl_items = true
