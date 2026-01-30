@@ -1,22 +1,21 @@
 extern crate alloc;
 use crate::dis_model::{DisModel, NUM_DIS_MODEL_STATES};
-use alloc::alloc::alloc_zeroed;
+use alloc::alloc::{alloc_zeroed, dealloc};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::mem::size_of;
 use core::simd::prelude::*;
 
+const NUM_BASE_CONTEXT_MODELS: usize = 21;
 const BYTE_MASKS: &[u8; NUM_BASE_CONTEXT_MODELS] = &[0, 1, 3, 17, 128, 2, 4, 5, 53, 76, 33, 7, 15, 6, 136, 193, 224, 243, 8, 9, 26];
 const BIT_MASKS: &[u8; NUM_BASE_CONTEXT_MODELS] = &[
     127, 255, 255, 0, 131, 225, 191, 255, 127, 255, 207, 0, 127, 255, 223, 127, 63, 123, 255, 111, 191,
 ];
 
-
 const HASH_MB: usize = 128;
-pub const HASH_ENTRIES: usize = HASH_MB * 1024 * 1024 / 16;
+const HASH_ENTRIES: usize = HASH_MB * 1024 * 1024 / 16;
 
-const NUM_BASE_CONTEXT_MODELS: usize = 21;
 const NUM_MIN_ACTIVE_CONTEXT_MODELS: usize = NUM_BASE_CONTEXT_MODELS;
 const NUM_MAX_ACTIVE_CONTEXT_MODELS: usize = NUM_BASE_CONTEXT_MODELS * 2;
 const NUM_CONST_MODELS: usize = 1;
@@ -315,6 +314,14 @@ pub struct Model {
     num_model_outputs: usize,
 
     match_models: Vec<MatchModel>,
+}
+
+impl Drop for Model {
+    fn drop(&mut self) {
+        unsafe {
+            dealloc(self.hash_table as *mut _, self.hash_table_layout);
+        }
+    }
 }
 
 impl Model {
@@ -738,7 +745,7 @@ impl SimdMulHi for i16x8 {
     }
 }
 
-pub fn horizontal_pair_add(a: i16x8, b: i16x8) -> i16x8 {
+fn horizontal_pair_add(a: i16x8, b: i16x8) -> i16x8 {
     let evens = simd_swizzle!(a, b, [0, 2, 4, 6, 8, 10, 12, 14]);
     let odds = simd_swizzle!(a, b, [1, 3, 5, 7, 9, 11, 13, 15]);
 

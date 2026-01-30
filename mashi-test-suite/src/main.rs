@@ -7,9 +7,14 @@ use std::path::Path;
 use wast::parser::ParseBuffer;
 use wast::{parser, Wast, WastDirective};
 
+/// Mashi Test Suite runner, runs as many WAST tests from the official test suite through a
+/// compression and decompression roundtrip to make sure Mashi doesn't mangle anything in the process.
 #[derive(Parser)]
 struct Cli {
+    /// Specifies the .wast file to start the test suite at
     filename: Option<String>,
+
+    /// Specifies the (1-based) module index within the .wast file to start the test suite in
     #[arg(requires = "filename")]
     module_index: Option<usize>,
 }
@@ -47,11 +52,22 @@ fn main() -> anyhow::Result<()> {
 
         let str = fs::read_to_string(&wast_file)?;
         let buf = ParseBuffer::new(&str)?;
-        let mut wast = parser::parse::<Wast>(&buf)?;
+        let mut wast = match parser::parse::<Wast>(&buf) {
+            Ok(wast) => wast,
+            Err(_) => continue,
+        };
         let binaries = wast.directives.iter_mut()
             .filter_map(|directive| {
                 match directive {
-                    WastDirective::Module(module) => Some(module.encode().unwrap()),
+                    WastDirective::Module(module) => {
+                        match module.encode() {
+                            Ok(binary) => Some(binary),
+                            Err(_) => {
+                                // Couldn't compile this test, so let's just move on
+                                None
+                            }
+                        }
+                    },
                     _ => None,
                 }
             })
