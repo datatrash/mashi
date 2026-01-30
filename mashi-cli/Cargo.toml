@@ -1,9 +1,13 @@
 [package]
-name = "mashi-test-suite"
+name = "mashi-cli"
 authors.workspace = true
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[[bin]]
+name = "mashi"
+path = "src/main.rs"
 
 [dependencies]
 mashi-core = { path = "../mashi-core" }
@@ -11,4 +15,8 @@ mashi-core = { path = "../mashi-core" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 indicatif = { workspace = true }
-wast = { workspace = true }
+
+shadow-rs = { version = "1.7.0", default-features = false }
+
+[build-dependencies]
+shadow-rs = "1.7.0"

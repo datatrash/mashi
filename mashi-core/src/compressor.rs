@@ -175,14 +175,14 @@ fn range_encode_shift_low(state: &mut RangeEncoderState) {
     state.low = (state.low << 8) & 0xffffffff;
 }
 
-struct RangeDecoderState<I: Iterator<Item=u8>> {
+struct RangeDecoderState<'a, I: Iterator<Item=&'a u8>> {
     input: I,
 
     code: u32,
     range: u32,
 }
 
-pub fn decompress<F>(mut input: Vec<u8>, mut f: F) -> Vec<u8>
+pub fn decompress<F>(mut input: &[u8], mut f: F) -> Vec<u8>
 where
     F: FnMut(usize),
 {
@@ -193,8 +193,9 @@ where
     let code_section_end = u32::from_le_bytes(arr) as u64;
     arr.copy_from_slice(&input[8..12]);
     let output_size = u32::from_le_bytes(arr) as usize;
-    input.drain(0..12);
     let code_section = code_section_start..code_section_end;
+
+    let input = &input[12..];
 
     let mut model = Model::new();
     let mut state = RangeDecoderState {
@@ -208,7 +209,7 @@ where
 
     for _ in 0..4 {
         state.code <<= 8;
-        state.code |= state.input.next().unwrap() as u32;
+        state.code |= *state.input.next().unwrap() as u32;
     }
 
     let mut marker_bit_prob = 2048;
@@ -260,7 +261,7 @@ where
     output
 }
 
-fn range_decode_bit<I: Iterator<Item=u8>>(state: &mut RangeDecoderState<I>, prob: u32) -> u32 {
+fn range_decode_bit<'a, I: Iterator<Item=&'a u8>>(state: &mut RangeDecoderState<'a, I>, prob: u32) -> u32 {
     let bound = (state.range >> 12) * prob;
     let bit = if state.code < bound {
         state.range = bound;
@@ -272,7 +273,7 @@ fn range_decode_bit<I: Iterator<Item=u8>>(state: &mut RangeDecoderState<I>, prob
     };
 
     while state.range < 0x01000000 {
-        state.code = (state.code << 8) | state.input.next().unwrap() as u32;
+        state.code = (state.code << 8) | *state.input.next().unwrap() as u32;
         state.range <<= 8;
     }
 

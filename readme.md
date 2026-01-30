@@ -37,6 +37,17 @@ Compressing `mashi-core/tests/test.wasm` with various compressors:
 This is a very early release, so beware. Having said that, all files in the official WebAssembly Test Suite can be
 successfully compressed and decompressed without Mashi eating any bytes.
 
+Also, the decompressor stub is currently still quite large (nearly 6k) which needs work.
+
+### How to hack
+
+1. Install a nightly toolchain, since the build process requires access to unstable features.
+2. Do your worst in `mashi-core`
+3. Optional: Run the test suite in `mashi-test-suite` to check for any regressions
+4. To build the decompressor stub used by the CLI, run `cargo xtask build-prerequisites` which will also report on the
+   size the decompressor will end up being after Zopfli compression used by the `index.html` loader.
+5. Build `mashi-cli`
+
 ### Credits
 
 * The compression model is based on the Squishy compressor by [Ferris](http://github.com/yupferris).

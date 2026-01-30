@@ -88,7 +88,7 @@ fn main() -> anyhow::Result<()> {
             });
             p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.green/red} {pos:>7}/{len:7}] {msg}")?
                 .progress_chars("##-"));
-            let decompressed = decompress(compressed.to_vec(), |pos| {
+            let decompressed = decompress(&compressed, |pos| {
                 p.set_position(pos as u64);
             });
             let result = *binary == decompressed;

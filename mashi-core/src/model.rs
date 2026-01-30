@@ -286,7 +286,7 @@ impl DisModelContext {
 pub struct Model {
     histories: Vec<History>,
 
-    pub dis_model: DisModel,
+    dis_model: DisModel,
     dis_model_state: u32,
 
     hash_table: *mut HashTableEntry,
