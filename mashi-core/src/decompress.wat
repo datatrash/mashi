@@ -368,7 +368,6 @@
                         )
                     ))
                 )
-                (else (nop)) ;; todo
             )
             (br_if $bit_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
         )
@@ -444,7 +443,6 @@
                 (global.set $bit_history (i32.const 0))
                 (global.set $bit_index (i32.const 0))
             )
-            (else (nop)) ;; todo
         )
     )
 
