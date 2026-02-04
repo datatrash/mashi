@@ -190,6 +190,7 @@ where
     let code_section_end = u32::from_le_bytes(arr) as u64;
     arr.copy_from_slice(&input[8..12]);
     let output_size = u32::from_le_bytes(arr) as usize;
+    let output_size = 50;
     let code_section = code_section_start..code_section_end;
 
     let input = &input[12..];

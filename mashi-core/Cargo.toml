@@ -10,5 +10,4 @@ log = "0.4.29"
 wasmparser = "0.244.0"
 
 [dev-dependencies]
-anyhow = { workspace = true }
 wasmi = "1.0.8"

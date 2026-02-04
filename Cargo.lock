@@ -571,7 +571,6 @@ dependencies = [
 name = "mashi-core"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "log",
  "wasmi",
  "wasmparser 0.244.0",

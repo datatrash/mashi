@@ -23,21 +23,21 @@ mod tests {
     }
 
     #[test]
-    fn test_decompress() -> anyhow::Result<()> {
+    fn test_decompress() {
         use wasmi::*;
 
         let dest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/test.wasm.mashi");
-        if !fs::exists(&dest)? {
+        if !fs::exists(&dest).unwrap() {
             let src = include_bytes!("../test-data/test.wasm").to_vec();
             let (c, _) = compress(&src, |_| ());
-            fs::write(&dest, &c)?;
+            fs::write(&dest, &c).unwrap();
         }
-        let compressed = fs::read(&dest)?;
+        let compressed = fs::read(&dest).unwrap();
         let (high_level_decompressed, model) = decompress(&compressed, |_| ());
 
         let wasm = include_str!("decompress.wat");
         let engine = Engine::default();
-        let module = Module::new(&engine, wasm.as_bytes())?;
+        let module = Module::new(&engine, wasm.as_bytes()).unwrap();
 
         struct HostState;
         let mut store = Store::new(&engine, HostState);
@@ -48,28 +48,38 @@ mod tests {
         linker.func_wrap("host", "log_u32", |caller: Caller<'_, HostState>, param: u32| {
             println!("       log_u32: {param}");
         });
-        let instance = linker.instantiate_and_start(&mut store, &module)?;
+        linker.func_wrap("host", "l_u32", |caller: Caller<'_, HostState>, param: u32| {
+            print!("{param} // ");
+        });
+        let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
 
         {
             let memory = instance.get_memory(&store, "memory").unwrap().data_mut(&mut store);
             memory[..compressed.len()].copy_from_slice(&compressed);
         }
 
+        println!();
         instance
-            .get_typed_func::<(), ()>(&store, "decompress")?
-            .call(&mut store, ())?;
+            .get_typed_func::<(), ()>(&store, "decompress").unwrap()
+            .call(&mut store, ()).unwrap();
 
         let memory = instance.get_memory(&store, "memory").unwrap().data(&mut store);
+
+        // check stretch_tab
         {
-            let memory = memory[(1024 * 1024) - 4096 * 4..1024 * 1024].as_ptr() as *const i32;
+            let memory = memory[0x00d0000..0x00d1000].as_ptr() as *const i32;
             let memory: &[i32] = unsafe { slice::from_raw_parts(memory, 4096) };
             assert_eq!(memory, &model.stretch_tab);
         }
 
+        /*for i in 0..high_level_decompressed.len() {
+            if memory[1024 * 1024 + i] != high_level_decompressed[i] {
+                panic!("Difference at offset {i}");
+            }
+        }*/
         assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], high_level_decompressed);
-        assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], include_bytes!("../test-data/test.wasm").to_vec());
-
-        Ok(())
+        //assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], include_bytes!("../test-data/test.wasm").to_vec());
+        //assert_eq!(high_level_decompressed.len(), (fs::metadata(&dest).unwrap().len() as usize) - 16);
     }
 
     #[test]

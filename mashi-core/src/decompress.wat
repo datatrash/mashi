@@ -2,12 +2,16 @@
     (import "host" "log_i32" (func $log_i32 (param i32)))
     (import "host" "log_u32" (func $log_u32 (param i32)))
 
+    (import "host" "l_u32" (func $l_u32 (param i32)))
+
     (global $src_ptr (mut i32) (i32.const 0))
-    (global $dest_ptr (mut i32) (i32.const 1048576))
     (global $code_section_start (mut i32) (i32.const 0))
     (global $code_section_end (mut i32) (i32.const 0))
     (global $output_size (mut i32) (i32.const 0))
     (global $byte_index (mut i32) (i32.const 0))
+
+    ;; hashing
+    (global $fnv_default i32 (i32.const 2166136261))
 
     ;; range decoder state
     (global $rd_code (mut i32) (i32.const 0))
@@ -16,7 +20,7 @@
     ;; model state
     ;;histories
     ;;dis_model
-    ;;dis_model_state
+    (global $dis_model_state (mut i32) (i32.const 0))
     ;;hash_table
     ;;dis_model_contexts
     ;;context_model_byte_hashes
@@ -25,18 +29,27 @@
     ;;stage_1_probs
     ;;stage_1_weight_contexts
     ;;stage_2_probs
-    ;;stage_2_prob
-    (global $stretch_tab_ptr i32 (i32.const 1032192)) ;; last 4096*4 bytes before decompressed data
-    ;;apm_mix_weights
+    (global $stage_2_prob (mut i32) (i32.const 0))
     (global $bit_history (mut i32) (i32.const 0))
     (global $bit_index (mut i32) (i32.const 0))
     (global $bit_history_hash (mut i32) (i32.const 0))
-    ;;num_active_context_models
+    (global $num_active_context_models (mut i32) (i32.const 21))
     ;;num_model_outputs
     ;;match_models
 
+    ;; offsets:
+    ;; stretch_tab = 0x00d0000
+    ;; apm_tabs =
+    ;;;; the first tab is from 0x2200000..0x2310000, then 0x2310000..0x2420000, then 0x2420000..0x2530000
+    ;; squash_tab = 0x00f0000
+    ;; byte_history_pos = 0x00f1000
+    ;; for every dis_model (reserve 32):
+    ;;;; apm_indices = 0x0f02000
+    ;;;; apm_weights = 0x0f03000
+    ;; byte_history = 0x0200000..0x2200000 (length per history = 0x100000, bytes are interleaved)
+
     ;; squash_tab
-    (data (i32.const 1032060)
+    (data (i32.const 0x00f0000)
         "\01\00\00\00\02\00\00\00\03\00\00\00\06\00\00\00"
         "\0a\00\00\00\10\00\00\00\1b\00\00\00\2d\00\00\00"
         "\49\00\00\00\78\00\00\00\c2\00\00\00\36\01\00\00"
@@ -47,6 +60,11 @@
         "\f5\0f\00\00\f9\0f\00\00\fc\0f\00\00\fd\0f\00\00"
         "\fe\0f\00\00"
     )
+
+    ;; apm_mix_weights
+    (data (i32.const 0x0f04000) "\02\02\01")
+    ;; apm_adjust_rates
+    (data (i32.const 0x0f04010) "\03\03\02")
 
     (memory (export "memory") 8192) ;; reserve 512mb
     ;;(memory (export "memory") 32)
@@ -93,7 +111,7 @@
     )
 
     (func $get_squash_tab_value (param $d i32) (result i32)
-        (i32.load offset=1032060
+        (i32.load offset=0x00f0000
             (i32.shl
                 (local.get $d)
                 (i32.const 2)
@@ -101,7 +119,7 @@
         )
     )
 
-    (func $squash (export "squash") (param $d i32) (result i32)
+    (func $squash (param $d i32) (result i32)
         (local $w i32)
 
         (if (result i32) (i32.gt_s (local.get $d) (i32.const 2047))
@@ -145,6 +163,8 @@
         (local $j i32)
         (local $x i32)
         (local $pi i32)
+        (local $apm_tab_index i32)
+        (local $apm_tab_val i32)
 
         ;; init stretch_tab
         (local.set $x (i32.const -2047))
@@ -154,7 +174,7 @@
             (block $st_fill_loop_end
                 (loop $st_fill_loop
                     (br_if $st_fill_loop_end (i32.gt_u (local.get $j) (local.get $i)))
-                    (i32.store (i32.add (global.get $stretch_tab_ptr) (i32.shl (local.get $j) (i32.const 2))) (local.get $x))
+                    (i32.store offset=0x00d0000 (i32.shl (local.get $j) (i32.const 2)) (local.get $x))
                     (local.set $j (i32.add (local.get $j) (i32.const 1)))
                     (br $st_fill_loop)
                 )
@@ -162,13 +182,267 @@
             (local.set $pi (i32.add (local.get $i) (i32.const 1)))
             (br_if $stretch_tab_loop (i32.lt_s (local.tee $x (i32.add (local.get $x) (i32.const 1))) (i32.const 2049)))
         )
+
+        ;; init apm_tab
+        (local.set $i (i32.const 0))
+        (local.set $j (i32.const -1))
+        (loop $apm_tab_outer_loop
+            (local.set $x (i32.const 0))
+            (loop $apm_tab_inner_loop
+
+                (i32.store16 offset=0x2200000
+                    (i32.shl
+                        (local.tee $j (i32.add (local.get $j) (i32.const 1)))
+                        (i32.const 1)
+                    )
+                    (call $squash
+                        (i32.sub
+                            (i32.shl (local.get $x) (i32.const 8))
+                            (i32.const 2047)
+                        )
+                    )
+                )
+
+                (br_if $apm_tab_inner_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (i32.const 17)))
+            )
+            (br_if $apm_tab_outer_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 0x10000)))
+        )
+    )
+
+    (func $hash_byte (param $state i32) (param $value i32) (result i32)
+        (i32.xor
+            (i32.mul
+                (local.get $state)
+                (i32.const 16777619)
+            )
+            (local.get $value)
+        )
+    )
+
+    (func $get_apm_data_offset (param $apm_index i32) (result i32)
+        (i32.shl
+            (i32.add
+                (i32.mul (global.get $dis_model_state) (i32.const 3)) ;; 3 apm stages per dis_model_context
+                (local.get $apm_index)
+            )
+            (i32.const 2) ;; 4 bytes per element
+        )
+    )
+
+    (func $apm_stage_update (param $apm_index i32) (param $bit i32)
+        (local $index i32)
+        (local.set $index (i32.load offset=0x0f02000 (call $get_apm_data_offset (local.get $apm_index)))) ;; apm_indices
+        ;;(call $l_u32 (local.get $index))
+        ;;(call $l_u32 (local.get $bit))
+        (call $apm_stage_update_entry (i32.load8_s offset=0x0f04010 (local.get $apm_index)) (local.get $index) (local.get $bit)) ;; apm_adjust_rates
+        (call $apm_stage_update_entry (i32.load8_s offset=0x0f04010 (local.get $apm_index)) (i32.add (local.get $index) (i32.const 1)) (local.get $bit))
+    )
+
+    (func $apm_stage_update_entry (param $adjust_rate i32) (param $index i32) (param $bit i32)
+        (local $entry i32)
+        (local.set $entry (i32.load16_s offset=0x2200000 (i32.shl (local.get $index) (i32.const 1))))
+        (local.set $entry
+            (i32.add
+                (local.get $entry)
+                (i32.shr_s
+                    (i32.sub
+                        (i32.shl (local.get $bit) (i32.const 12))
+                        (local.get $entry)
+                    )
+                    (local.get $adjust_rate)
+                )
+            )
+        )
+        ;;(call $l_u32 (local.get $index))
+        ;;(call $l_u32 (local.get $entry))
+        (i32.store16 offset=0x2200000 (i32.shl (local.get $index) (i32.const 1)) (local.get $entry))
+    )
+
+    (func $apm_stage_prob (param $apm_index i32) (result i32)
+        (local $index i32)
+        (local $weight i32)
+        (local $a i32)
+        (local $b i32)
+        (local.set $index (i32.load offset=0x0f02000 (call $get_apm_data_offset (local.get $apm_index)))) ;; apm_indices
+        (local.set $weight (i32.load offset=0x0f03000 (call $get_apm_data_offset (local.get $apm_index)))) ;; apm_weights
+        (local.set $a (i32.load16_s offset=0x2200000 (i32.shl (local.get $index) (i32.const 1))))
+        (local.set $b (i32.load16_s offset=0x2200000 (i32.shl (i32.add (local.get $index) (i32.const 1)) (i32.const 1))))
+
+        ;;(call $l_u32 (local.get $index))
+        ;;(call $l_u32 (local.get $a))
+        ;;(call $l_u32 (local.get $b))
+
+        (i32.add
+            (local.get $a)
+            (i32.shr_s
+                (i32.mul
+                    (i32.sub (local.get $b) (local.get $a))
+                    (local.get $weight)
+                )
+                (i32.const 8)
+            )
+        )
+    )
+
+    (func $apm_stage_set_index (param $apm_index i32) (param $context i32) (param $prob i32)
+        (local.set $context (i32.and (local.get $context) (i32.const 0xffff)))
+        (local.set $prob (i32.add (local.get $prob) (i32.const 2047)))
+        (if (i32.lt_s (local.get $prob) (i32.const 0)) (then (local.set $prob (i32.const 0))))
+        (if (i32.gt_s (local.get $prob) (i32.const 4095)) (then (local.set $prob (i32.const 4095))))
+
+        (i32.store offset=0x0f02000 (call $get_apm_data_offset (local.get $apm_index))
+            (i32.add
+                (i32.mul (local.get $context) (i32.const 17))
+                (i32.shr_u (local.get $prob) (i32.const 8))
+            )
+        ) ;; apm_indices
+        (i32.store offset=0x0f03000 (call $get_apm_data_offset (local.get $apm_index)) (i32.and (local.get $prob) (i32.const 0xff))) ;; apm_weights
+
+        ;;(call $l_u32 (local.get $prob))
+        ;;(call $l_u32 (i32.load offset=0x0f02000 (call $get_apm_data_offset (local.get $apm_index))))
+        ;;(call $l_u32 (i32.load offset=0x0f03000 (call $get_apm_data_offset (local.get $apm_index))))
+    )
+
+    (func $history_get (param $history_idx i32) (param $index i32) (result i32)
+        ;; byte_history[0x0200000 + ((index & HISTORY_BUFFER_LEN - 1) * 32) + history_idx]
+        (i32.load8_u offset=0x0200000
+            (i32.add
+                (i32.shl
+                    (i32.and
+                        (local.get $index)
+                        (i32.const 0x00fffff)
+                    )
+                    (i32.const 5)
+                )
+                (local.get $history_idx)
+            )
+        )
+    )
+
+    (func $history_update (param $history_idx i32) (param $byte i32)
+        (local $byte_history_pos i32)
+        (local.set $byte_history_pos (i32.load8_u offset=0x00f1000 (local.get $history_idx)))
+
+        ;; byte_history[0x0200000 + (byte_history_pos * 32) + history_idx] = byte
+        (i32.store8 offset=0x0200000
+            (i32.add
+                (i32.shl
+                    (local.get $byte_history_pos)
+                    (i32.const 5)
+                )
+                (local.get $history_idx)
+            )
+            (local.get $byte)
+        )
+
+        (i32.store8 offset=0x00f1000
+            (local.get $history_idx)
+            (i32.and
+                (i32.add (local.get $byte_history_pos) (i32.const 1))
+                (i32.const 0x00fffff)
+            )
+        )
+    )
+
+    (func $history_hash (param $history_idx i32) (param $byte_mask i32) (result i32)
+        (local $i i32)
+        (local $state i32)
+        (local.set $state (global.get $fnv_default))
+        (local.set $state (call $hash_byte (local.get $state) (local.get $byte_mask)))
+
+        (loop $bit_loop
+            (if (i32.gt_u (i32.shr_u (local.get $byte_mask) (local.get $i)) (i32.const 0))
+                (then
+                    (local.set $state (call $hash_byte (local.get $state)
+                        (call $history_get (local.get $history_idx)
+                            (i32.sub
+                                (i32.sub
+                                    (i32.load8_u offset=0x00f1000 (local.get $history_idx)) ;; byte_history_pos
+                                    (i32.const 1)
+                                )
+                                (local.get $i)
+                            )
+                        )
+                    ))
+                )
+                (else (nop)) ;; todo
+            )
+            (br_if $bit_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
+        )
+
+        (local.get $state)
     )
 
     (func $model_prob (result i32)
-        (i32.const 2048)
+        (local $i i32)
+        (local $prob i32)
+        (local $apm_context i32)
+
+        (global.set $bit_history_hash
+            (i32.or
+                (i32.shl (i32.const 1) (global.get $bit_index))
+                (global.get $bit_history)
+            )
+        )
+
+        (global.set $stage_2_prob (i32.const 0)) ;; hack
+        (local.set $prob (global.get $stage_2_prob))
+
+        (loop $apm_loop
+            (local.set $apm_context (call $history_hash (i32.const 0) (i32.sub (i32.shl (i32.const 1) (local.get $i)) (i32.const 1))))
+            (local.set $apm_context (call $hash_byte (local.get $apm_context) (global.get $bit_history_hash)))
+            (call $apm_stage_set_index (local.get $i) (local.get $apm_context) (local.get $prob))
+            (local.set $prob
+                (i32.add
+                    (local.get $prob)
+                    (i32.shr_s
+                        (i32.mul
+                            (i32.sub
+                                (i32.load offset=0x00d0000 (i32.shl (call $apm_stage_prob (local.get $i)) (i32.const 2))) ;; stretch_tab
+                                (local.get $prob)
+                            )
+                            (i32.load8_s offset=0x0f04000 (local.get $i)) ;; apm_mix_weights
+                        )
+                        (i32.const 4)
+                    )
+                )
+            )
+            (br_if $apm_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 3)))
+        )
+
+        (local.set $prob (call $squash (local.get $prob)))
+
+        (if (i32.lt_u (local.get $prob) (i32.const 1)) (then (local.set $prob (i32.const 1))))
+        (if (i32.gt_u (local.get $prob) (i32.const 4095)) (then (local.set $prob (i32.const 4095))))
+
+        (local.get $prob)
     )
 
-    (func $model_update (param $bit i32))
+    (func $model_update (param $bit i32)
+        (local $i i32)
+
+        (loop $apm_loop
+            (call $apm_stage_update (local.get $i) (local.get $bit))
+            (br_if $apm_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 3)))
+        )
+
+        (global.set $bit_history
+            (i32.or
+                (i32.shl (global.get $bit_history) (i32.const 1))
+                (local.get $bit)
+            )
+        )
+        (global.set $bit_index (i32.add (global.get $bit_index) (i32.const 1)))
+
+        (if (i32.eq (global.get $bit_index) (i32.const 8))
+            (then
+                (call $history_update (i32.const 0) (global.get $bit_history))
+                (global.set $bit_history (i32.const 0))
+                (global.set $bit_index (i32.const 0))
+            )
+            (else (nop)) ;; todo
+        )
+    )
 
     (func (export "decompress")
         (local $i i32)
@@ -180,6 +454,7 @@
         (global.set $code_section_start (i32.load (global.get $src_ptr)))
         (global.set $code_section_end (i32.load offset=4 (global.get $src_ptr)))
         (global.set $output_size (i32.load offset=8 (global.get $src_ptr)))
+        (global.set $output_size (i32.const 50)) ;; hack
         (global.set $src_ptr (i32.const 12))
 
         (call $model_init)
@@ -227,9 +502,9 @@
                 (local.set $i (i32.const 0))
                 (loop $decode_byte_loop
                     (local.set $bit (call $range_decode_bit (call $model_prob)))
-                    (i32.store8 (global.get $dest_ptr)
+                    (i32.store8 offset=0x0100000 (global.get $byte_index)
                         (i32.or
-                            (i32.shl (i32.load8_u (global.get $dest_ptr)) (i32.const 1))
+                            (i32.shl (i32.load8_u offset=0x0100000 (global.get $byte_index)) (i32.const 1))
                             (local.get $bit)
                         )
                     )
@@ -237,7 +512,6 @@
                     (br_if $decode_byte_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
                 )
 
-                (global.set $dest_ptr (i32.add (global.get $dest_ptr) (i32.const 1)))
                 (global.set $byte_index (i32.add (global.get $byte_index) (i32.const 1)))
                 br $decode_loop
             )
