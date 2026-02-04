@@ -27,7 +27,7 @@ const NUM_MAX_MODEL_OUTPUTS: usize =
     (NUM_MAX_ACTIVE_CONTEXT_MODELS * 3 + NUM_CONST_MODELS + NUM_MATCH_MODELS + (MIX_VECTOR_SIZE - 1)) & !(MIX_VECTOR_SIZE - 1);
 
 const APM_TAB_SIZE: usize = 16;
-const APM_CONTEXT_SIZE: usize = 0x10000;
+pub const APM_CONTEXT_SIZE: usize = 0x10000;
 const NUM_APM_STAGES: usize = 3;
 
 mod fnv {
@@ -61,11 +61,11 @@ impl HashTableEntry {
     }
 }
 
-const HISTORY_BUFFER_LEN: usize = 0x00100000;
+pub const HISTORY_BUFFER_LEN: usize = 0x00100000;
 
 const INDEX_BUFFER_LEN: usize = HISTORY_BUFFER_LEN / 4;
 
-struct History {
+pub struct History {
     byte_history: Vec<u8>,
     byte_history_pos: usize,
 }
@@ -219,7 +219,7 @@ impl Apm {
 
         self.index = (context as usize) * (APM_TAB_SIZE + 1) + ((prob >> 8) as usize);
         self.weight = prob & 0xff;
-        //print!("{} // {} // {} // ", prob, self.index, self.weight);
+        //print!("{} @@ {} @@ {} // ", prob, self.index, self.weight);
     }
 
     // Assumes set_index has been called already for the current bit
@@ -241,7 +241,7 @@ impl Apm {
         let scaled_bit = (bit << 12) as i32;
         let mut entry = self.tab[index] as i32;
         entry += (scaled_bit - entry) >> self.adjust_rate;
-        //print!("{index} // {entry} // ");
+        //print!("{index}|{entry} << ");
         self.tab[index] = entry as _;
     }
 }
