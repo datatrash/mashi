@@ -111,11 +111,12 @@ where
 
         for bit_index in 0..8 {
             let bit = ((byte as u32) >> (7 - bit_index)) & 0x01;
-            let prob = model.prob();
+            //let prob = model.prob();
+            let prob = 2048;
             bits += -((if bit != 0 { prob } else { 4096 - prob } as f64) / 4096.0).log2();
             range_encode_bit(&mut state, prob, bit);
 
-            model.update(bit, is_in_code_section);
+            //model.update(bit, is_in_code_section);
         }
 
         state.bits_per_byte.push(bits as _);
@@ -240,9 +241,10 @@ where
 
         let is_in_code_section = (byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
         for _ in 0..8 {
-            let bit = range_decode_bit(&mut state, model.prob());
+            //let bit = range_decode_bit(&mut state, model.prob());
 
-            model.update(bit, is_in_code_section);
+            //            model.update(bit, is_in_code_section);
+            let bit = range_decode_bit(&mut state, 2048);
 
             byte = (byte << 1) | (bit as u8);
         }
