@@ -1,5 +1,5 @@
-use alloc::collections::VecDeque;
 use core::fmt::{Display, Formatter};
+use std::collections::VecDeque;
 
 pub const NUM_DIS_MODEL_STATES: usize = core::mem::variant_count::<DisModelState>();
 

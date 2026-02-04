@@ -1,55 +1,24 @@
-#![no_std]
 #![allow(unused, dead_code, internal_features)]
 #![feature(core_intrinsics, portable_simd, variant_count)]
-extern crate alloc;
-#[cfg(feature = "std")]
-extern crate std;
 
 mod compressor;
 mod dis_model;
 mod model;
 
-#[cfg(not(feature = "std"))]
-#[panic_handler]
-pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
-    #[allow(unused_unsafe)]
-    unsafe {
-        ::core::intrinsics::unreachable();
-    }
-}
-
-#[cfg(not(feature = "std"))]
-#[global_allocator]
-static ALLOCATOR: lol_alloc::AssumeSingleThreaded<lol_alloc::LeakingPageAllocator> =
-    unsafe { lol_alloc::AssumeSingleThreaded::new(lol_alloc::LeakingPageAllocator) };
-
-#[cfg(feature = "std")]
 pub use compressor::{compress, decompress};
-
-#[cfg(all(feature = "tiny", target_arch = "wasm32"))]
-#[unsafe(no_mangle)]
-fn decompress(data: *const u8, len: usize) -> *const u8 {
-    let data = unsafe {
-        core::slice::from_raw_parts(data, len)
-    };
-
-    let result = compressor::decompress(&data, |_| ());
-    result.as_ptr()
-}
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::compressor::{compress, decompress};
     use std::path::PathBuf;
-    use std::{fs, println};
+    use std::{fs, println, slice};
 
     #[test]
     fn roundtrip() {
         let src = include_bytes!("../test-data/test.wasm").to_vec();
         let (c, _) = compress(&src, |_| ());
         println!("From {} to {}", src.len(), c.len());
-        let out = decompress(&c, |_| ());
+        let (out, _) = decompress(&c, |_| ());
         assert_eq!(src, out);
     }
 
@@ -64,7 +33,7 @@ mod tests {
             fs::write(&dest, &c)?;
         }
         let compressed = fs::read(&dest)?;
-        let high_level_decompressed = decompress(&compressed, |_| ());
+        let (high_level_decompressed, model) = decompress(&compressed, |_| ());
 
         let wasm = include_str!("decompress.wat");
         let engine = Engine::default();
@@ -91,8 +60,50 @@ mod tests {
             .call(&mut store, ())?;
 
         let memory = instance.get_memory(&store, "memory").unwrap().data(&mut store);
+        {
+            let memory = memory[(1024 * 1024) - 4096 * 4..1024 * 1024].as_ptr() as *const i32;
+            let memory: &[i32] = unsafe { slice::from_raw_parts(memory, 4096) };
+            assert_eq!(memory, &model.stretch_tab);
+        }
+
         assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], high_level_decompressed);
+        assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], include_bytes!("../test-data/test.wasm").to_vec());
 
         Ok(())
+    }
+
+    #[test]
+    fn squash_tab_generator() {
+        let squash_tab: [i32; 33] = [
+            1, 2, 3, 6, 10, 16, 27, 45, 73, 120, 194, 310, 488, 747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785, 3901, 3975, 4022, 4050, 4068, 4079,
+            4085, 4089, 4092, 4093, 4094,
+        ];
+
+        // We will accumulate the string here
+        let mut current_line = String::new();
+
+        // Iterate through the array
+        for (i, &num) in squash_tab.iter().enumerate() {
+            // 1. Convert integer to 4 bytes (Little Endian)
+            let bytes = num.to_le_bytes();
+
+            // 2. Format as WAT hex string (e.g. \01\00\00\00)
+            let escaped: String = bytes.iter()
+                .map(|b| format!("\\{:02x}", b))
+                .collect();
+
+            current_line.push_str(&escaped);
+
+            // Optional: Break lines every 4 integers for readability
+            if (i + 1) % 4 == 0 {
+                println!("\"{}\"", current_line);
+                current_line.clear();
+            }
+        }
+
+        // Print any remaining items
+        if !current_line.is_empty() {
+            println!("\"{}\"", current_line);
+        }
     }
 }

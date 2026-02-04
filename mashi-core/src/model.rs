@@ -303,7 +303,7 @@ pub struct Model {
     stage_2_probs: Vec<i16x8>,
     stage_2_prob: i32,
 
-    stretch_tab: [i32; 4096],
+    pub stretch_tab: [i32; 4096],
 
     apm_mix_weights: Vec<u8>,
 
@@ -681,7 +681,7 @@ impl Model {
 }
 
 // return p = 1/(1 + exp(-d)), d scaled by 8 bits, p scaled by 12 bits
-fn squash(d: i32) -> u32 {
+pub fn squash(d: i32) -> u32 {
     if d > 2047 {
         return 4095;
     }

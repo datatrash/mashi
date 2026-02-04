@@ -1,7 +1,4 @@
 use crate::model::*;
-use alloc::vec;
-use alloc::vec::Vec;
-use core::iter::Iterator;
 
 const BLOCK_SIZE_SHIFT: usize = 13; // BLOCK_SIZE = 8kb
 const BLOCK_SIZE: usize = 1 << BLOCK_SIZE_SHIFT;
@@ -21,7 +18,6 @@ struct RangeEncoderState {
     bits_per_byte: Vec<f32>,
 }
 
-#[cfg(feature = "std")]
 pub fn compress<F>(mut input: &[u8], mut f: F) -> (Vec<u8>, Vec<f32>)
 where
     F: FnMut(usize),
@@ -183,7 +179,7 @@ struct RangeDecoderState<'a, I: Iterator<Item=&'a u8>> {
     range: u32,
 }
 
-pub fn decompress<F>(mut input: &[u8], mut f: F) -> Vec<u8>
+pub fn decompress<F>(mut input: &[u8], mut f: F) -> (Vec<u8>, Model)
 where
     F: FnMut(usize),
 {
@@ -239,12 +235,11 @@ where
 
         let mut byte: u8 = 0;
 
-        let is_in_code_section = (byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
+        let is_in_code_section = false; //(byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
         for _ in 0..8 {
-            //let bit = range_decode_bit(&mut state, model.prob());
+            let bit = range_decode_bit(&mut state, model.prob());
 
-            //            model.update(bit, is_in_code_section);
-            let bit = range_decode_bit(&mut state, 2048);
+            model.update(bit, is_in_code_section);
 
             byte = (byte << 1) | (bit as u8);
         }
@@ -260,7 +255,7 @@ where
 
     f(output_size);
 
-    output
+    (output, model)
 }
 
 fn range_decode_bit<'a, I: Iterator<Item=&'a u8>>(state: &mut RangeDecoderState<'a, I>, prob: u32) -> u32 {
