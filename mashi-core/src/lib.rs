@@ -10,7 +10,7 @@ pub use compressor::{compress, decompress};
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::model::{Apm, History, Model, APM_CONTEXT_SIZE};
+    use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, NUM_MATCH_MODELS};
     use rand::prelude::StdRng;
     use rand::{Rng, RngCore, SeedableRng};
     use std::path::PathBuf;
@@ -19,6 +19,7 @@ mod tests {
 
     #[test]
     fn roundtrip() {
+        // just a roundtrip of the pure Rust implementation
         let src = include_bytes!("../test-data/test.wasm").to_vec();
         let (c, _) = compress(&src, |_| ());
         println!("From {} to {}", src.len(), c.len());
@@ -48,6 +49,9 @@ mod tests {
             });
             linker.func_wrap("host", "l_u32", |caller: Caller<'_, HostState>, param: u32| {
                 print!("{param} // ");
+            });
+            linker.func_wrap("host", "l_u32_excl", |caller: Caller<'_, HostState>, param: u32| {
+                print!("{param} !! ");
             });
             linker.func_wrap("host", "l_x32", |caller: Caller<'_, HostState>, param: u32| {
                 print!("{param:0X} // ");
@@ -86,6 +90,24 @@ mod tests {
             self.instance
                 .get_typed_func::<(i32, i32), ()>(&self.store, "history_update").unwrap()
                 .call(&mut self.store, (history_index, byte)).unwrap();
+        }
+
+        fn match_model_prob(&mut self, match_model_index: i32) -> i32 {
+            self.instance
+                .get_typed_func::<(i32), (i32)>(&self.store, "match_model_prob").unwrap()
+                .call(&mut self.store, (match_model_index)).unwrap()
+        }
+
+        fn match_model_update_bit(&mut self, match_model_index: i32, bit: i32) {
+            self.instance
+                .get_typed_func::<(i32, i32), ()>(&self.store, "match_model_update_bit").unwrap()
+                .call(&mut self.store, (match_model_index, bit)).unwrap()
+        }
+
+        fn match_model_update_byte(&mut self, match_model_index: i32, byte_mask: i32) {
+            self.instance
+                .get_typed_func::<(i32, i32), ()>(&self.store, "match_model_update_byte").unwrap()
+                .call(&mut self.store, (match_model_index, byte_mask)).unwrap()
         }
 
         fn apm_stage_set_index(&mut self, apm_index: i32, context: i32, prob: i32) {
@@ -141,6 +163,47 @@ mod tests {
             /*for i in 0..HISTORY_BUFFER_LEN {
                 assert_eq!(history.get(i), test.history_get(0, i as i32) as u8, "history_get mismatch at {i}, pos: {pos}");
             }*/
+        }
+    }
+
+    #[test]
+    fn test_match_model() {
+        let mut r = StdRng::seed_from_u64(42);
+        let mut data = [0i32; 262144];
+        r.fill(&mut data);
+
+        let mut test = Test::new();
+        test.model_init();
+
+        let mut history = History::new();
+        let mut match_models = vec![];
+        for i in 0..NUM_MATCH_MODELS {
+            match_models.push(MatchModel::new());
+        }
+        for (pos, b) in data.iter().enumerate() {
+            for i in 0..NUM_MATCH_MODELS {
+                let rust_prob = match_models[i].prob(&history);
+                let wasm_prob = test.match_model_prob(i as i32);
+                assert_eq!(rust_prob, wasm_prob as u32, "Mismatch at {pos}, match_model_index {i}");
+            }
+
+            let new_byte = (r.next_u32() & 0xff) as u8;
+
+            for bit in 0..8 {
+                for i in 0..NUM_MATCH_MODELS {
+                    let val = ((new_byte >> bit) & 1) as u32;
+                    match_models[i].update_bit(val);
+                    test.match_model_update_bit(i as i32, val as i32);
+                }
+            }
+
+            history.update(new_byte);
+            test.history_update(0, new_byte as i32);
+            for i in 0..NUM_MATCH_MODELS {
+                let byte_mask = ((1 << (i + 1)) - 1) as _;
+                match_models[i].update_byte(&history, byte_mask);
+                test.match_model_update_byte(i as i32, byte_mask as i32);
+            }
         }
     }
 
@@ -206,16 +269,15 @@ mod tests {
 
     #[test]
     fn test_decompress() {
+        // Do a Rust compressor --> WASM decompressor roundtrip
         use wasmi::*;
 
         let dest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/test.wasm.mashi");
-        if !fs::exists(&dest).unwrap() {
-            let src = include_bytes!("../test-data/test.wasm").to_vec();
-            let (c, _) = compress(&src, |_| ());
-            fs::write(&dest, &c).unwrap();
-        }
+        let src = include_bytes!("../test-data/test.wasm").to_vec();
+        let (c, _) = compress(&src, |_| ());
         let compressed = fs::read(&dest).unwrap();
         let (high_level_decompressed, model) = decompress(&compressed, |_| ());
+        assert_eq!(&high_level_decompressed, &include_bytes!("../test-data/test.wasm").to_vec());
 
         let mut test = Test::new();
         {
@@ -238,8 +300,6 @@ mod tests {
             }
         }*/
         assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], high_level_decompressed);
-        //assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], include_bytes!("../test-data/test.wasm").to_vec());
-        //assert_eq!(high_level_decompressed.len(), (fs::metadata(&dest).unwrap().len() as usize) - 16);
     }
 
     // rerun this is the squash_tab changes

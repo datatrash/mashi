@@ -19,10 +19,12 @@ const HASH_ENTRIES: usize = HASH_MB * 1024 * 1024 / 16;
 const NUM_MIN_ACTIVE_CONTEXT_MODELS: usize = NUM_BASE_CONTEXT_MODELS;
 const NUM_MAX_ACTIVE_CONTEXT_MODELS: usize = NUM_BASE_CONTEXT_MODELS * 2;
 const NUM_CONST_MODELS: usize = 1;
-const NUM_MATCH_MODELS: usize = 8;
+pub const NUM_MATCH_MODELS: usize = 8;
 const MIX_VECTOR_SIZE: usize = 8;
 const NUM_MIN_MODEL_OUTPUTS: usize =
     (NUM_MIN_ACTIVE_CONTEXT_MODELS * 3 + NUM_CONST_MODELS + NUM_MATCH_MODELS + (MIX_VECTOR_SIZE - 1)) & !(MIX_VECTOR_SIZE - 1);
+
+// 138
 const NUM_MAX_MODEL_OUTPUTS: usize =
     (NUM_MAX_ACTIVE_CONTEXT_MODELS * 3 + NUM_CONST_MODELS + NUM_MATCH_MODELS + (MIX_VECTOR_SIZE - 1)) & !(MIX_VECTOR_SIZE - 1);
 
@@ -102,7 +104,7 @@ impl History {
     }
 }
 
-struct MatchModel {
+pub struct MatchModel {
     index_buffer: Vec<usize>,
 
     bit_position: u32,
@@ -115,7 +117,7 @@ struct MatchModel {
 }
 
 impl MatchModel {
-    fn new() -> MatchModel {
+    pub fn new() -> MatchModel {
         MatchModel {
             index_buffer: vec![0; INDEX_BUFFER_LEN],
 

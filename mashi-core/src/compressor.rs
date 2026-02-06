@@ -63,7 +63,7 @@ where
     let input_len = input.len();
     let mut byte_index = 0;
     while byte_index < input_len {
-        let is_in_code_section = (byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
+        let is_in_code_section = false;//(byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
 
         // Each BLOCK_SIZE, we check if the next BLOCK_SIZE bytes are all 0x00 or not.
         //  If they are, we output a 0 marker bit, and nothing else.
@@ -107,12 +107,11 @@ where
 
         for bit_index in 0..8 {
             let bit = ((byte as u32) >> (7 - bit_index)) & 0x01;
-            //let prob = model.prob();
-            let prob = 2048;
+            let prob = model.prob();
             bits += -((if bit != 0 { prob } else { 4096 - prob } as f64) / 4096.0).log2();
             range_encode_bit(&mut state, prob, bit);
 
-            //model.update(bit, is_in_code_section);
+            model.update(bit, is_in_code_section);
         }
 
         state.bits_per_byte.push(bits as _);
@@ -236,7 +235,7 @@ where
 
         let mut byte: u8 = 0;
 
-        let is_in_code_section = false; //(byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
+        let is_in_code_section = false;//(byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
         for _ in 0..8 {
             let bit = range_decode_bit(&mut state, model.prob());
 
