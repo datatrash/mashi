@@ -401,7 +401,7 @@ impl Model {
         self.bit_history_hash = (1 << self.bit_index) | self.bit_history;
 
         let mut probs_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
-        for i in 0..self.num_active_context_models {
+        /*for i in 0..self.num_active_context_models {
             let mut hash = self.context_model_byte_hashes[i];
             hash ^= ((1 << self.bit_index) | (self.bit_history & BIT_MASKS[i % NUM_BASE_CONTEXT_MODELS])) as u32;
 
@@ -469,7 +469,7 @@ impl Model {
                 *probs_ptr = prediction as _;
                 probs_ptr = probs_ptr.offset(1);
             }
-        }
+        }*/
 
         for _ in 0..NUM_CONST_MODELS {
             let prediction = 1024;
@@ -491,13 +491,13 @@ impl Model {
         }
 
         // debug: print all stage_1_probs that were calculated
-        let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
+        /*let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
         while probs_print_ptr != probs_ptr {
             unsafe {
                 print!("{:?} @@ ", *probs_print_ptr);
                 probs_print_ptr = probs_print_ptr.offset(1);
             }
-        }
+        }*/
 
         for i in 0..4 {
             //self.stage_1_weight_contexts[i] = self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1 - i as i32) as usize) as _;
@@ -522,6 +522,12 @@ impl Model {
                 probs_ptr = probs_ptr.offset(1);
             }
         }
+        // debug: print all stage_1_weights that were calculated
+        for i in 0..8 {
+            for j in 0..8 {
+                print!("{:?} @@ ", dis_model_context.stage_1_weights[(i * 256 + (self.stage_1_weight_contexts[i] as usize)) * NUM_MAX_MODEL_OUTPUTS / MIX_VECTOR_SIZE].as_array()[j]);
+            }
+        }
         // debug: print all stage_1_weight_contexts that were calculated
         /*for i in 0..8 {
             print!("{:?} @@ ", self.stage_1_weight_contexts[i]);
@@ -537,12 +543,12 @@ impl Model {
         //self.stage_2_prob = 0;
 
         let mut prob = self.stage_2_prob;
-        for i in 0..NUM_APM_STAGES {
+        /*for i in 0..NUM_APM_STAGES {
             let mut apm_context = self.histories[0].hash((1 << i) - 1);
             fnv::hash_byte(&mut apm_context, self.bit_history_hash);
             dis_model_context.apm_stages[i].set_index(apm_context, prob);
             prob += ((stretch(dis_model_context.apm_stages[i].prob() as _, &self.stretch_tab) - prob) * (self.apm_mix_weights[i] as i32)) >> 4;
-        }
+        }*/
         prob = squash(prob) as _;
 
         let prob_margin = 1;
@@ -663,7 +669,7 @@ impl Model {
         //for i in 0..8 { print!("{} ++ {} /! ", self.stage_2_probs[0].to_array()[i], dis_model_context.stage_2_weights[0].as_array()[i]); }
 
         for i in 0..NUM_APM_STAGES {
-            dis_model_context.apm_stages[i].update(bit);
+            //dis_model_context.apm_stages[i].update(bit);
         }
 
         self.bit_history = (self.bit_history << 1) | (bit as u8);
@@ -672,7 +678,7 @@ impl Model {
         if self.bit_index == 8 {
             let byte = self.bit_history;
 
-            self.histories[0].update(byte);
+            //self.histories[0].update(byte);
 
             /*if self.dis_model_state > 0 {
                 self.histories[self.dis_model_state as usize].update(byte);
@@ -706,7 +712,7 @@ impl Model {
             }*/
 
             for i in 0..NUM_MATCH_MODELS {
-                self.match_models[i].update_byte(&self.histories[0], ((1 << (i + 1)) - 1) as _);
+                //self.match_models[i].update_byte(&self.histories[0], ((1 << (i + 1)) - 1) as _);
             }
         }
     }
