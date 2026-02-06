@@ -10,12 +10,14 @@ pub use compressor::{compress, decompress};
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, NUM_MATCH_MODELS};
+    use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, BIT_MASKS, BYTE_MASKS, NUM_MATCH_MODELS};
     use rand::prelude::StdRng;
     use rand::{Rng, RngCore, SeedableRng};
     use std::path::PathBuf;
     use std::{fs, println, slice};
+    use num_traits::ToBytes;
     use wasmi::{Caller, Engine, Linker, Module, Store};
+    use crate::dis_model::NUM_DIS_MODEL_STATES;
 
     #[test]
     fn roundtrip() {
@@ -271,6 +273,22 @@ mod tests {
         assert_eq!(memory, &model.stretch_tab);
     }
 
+    #[test]
+    fn test_indirect_probs() {
+        let mut test = Test::new();
+        test.model_init();
+
+        let mut model = Model::new();
+        for i in 0..NUM_DIS_MODEL_STATES + 1 {
+            const LENGTH_IN_BYTES: usize = 0x540000;
+            let start = 0x1ac00000 + i * LENGTH_IN_BYTES;
+            let memory = test.memory()[start..start + LENGTH_IN_BYTES].as_ptr() as *const u16;
+            let memory: &[u16] = unsafe { slice::from_raw_parts(memory, LENGTH_IN_BYTES / size_of::<u16>()) };
+            assert_eq!(memory.len(), model.dis_model_contexts[0].indirect_probs.len());
+            assert_eq!(memory, model.dis_model_contexts[0].indirect_probs);
+        }
+    }
+
     fn wasm_roundtrip(src: &[u8]) {
         // Do a Rust compressor --> WASM decompressor roundtrip
         use wasmi::*;
@@ -310,25 +328,18 @@ mod tests {
         wasm_roundtrip(include_bytes!("../test-data/test.wasm"));
     }
 
-    // rerun this is the squash_tab changes
-    #[test]
-    fn squash_tab_generator() {
-        let squash_tab: [i32; 33] = [
-            1, 2, 3, 6, 10, 16, 27, 45, 73, 120, 194, 310, 488, 747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785, 3901, 3975, 4022, 4050, 4068, 4079,
-            4085, 4089, 4092, 4093, 4094,
-        ];
-
+    fn print_tab<T>(tab: &[T], items_per_line: usize) where T: ToBytes {
         let mut current_line = String::new();
 
-        for (i, &num) in squash_tab.iter().enumerate() {
+        for (i, num) in tab.into_iter().enumerate() {
             let bytes = num.to_le_bytes();
-            let escaped: String = bytes.iter()
+            let escaped: String = bytes.as_ref().iter()
                 .map(|b| format!("\\{:02x}", b))
                 .collect();
 
             current_line.push_str(&escaped);
 
-            if (i + 1) % 4 == 0 {
+            if (i + 1) % items_per_line == 0 {
                 println!("\"{}\"", current_line);
                 current_line.clear();
             }
@@ -337,5 +348,27 @@ mod tests {
         if !current_line.is_empty() {
             println!("\"{}\"", current_line);
         }
+    }
+
+    // rerun if table changes
+    #[test]
+    fn squash_tab_generator() {
+        let squash_tab: [i32; 33] = [
+            1, 2, 3, 6, 10, 16, 27, 45, 73, 120, 194, 310, 488, 747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785, 3901, 3975, 4022, 4050, 4068, 4079,
+            4085, 4089, 4092, 4093, 4094,
+        ];
+        print_tab(&squash_tab, 4);
+    }
+
+    // rerun if table changes
+    #[test]
+    fn bit_masks_tab_generator() {
+        print_tab(BIT_MASKS, 16);
+    }
+
+    // rerun if table changes
+    #[test]
+    fn byte_masks_tab_generator() {
+        print_tab(BYTE_MASKS, 16);
     }
 }
