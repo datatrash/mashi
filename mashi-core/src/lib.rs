@@ -275,17 +275,18 @@ mod tests {
     }
 
     #[test]
-    fn test_mix() {
+    fn test_mix_and_train() {
+        let mut r = StdRng::seed_from_u64(42);
+
         let mut test = Test::new();
         let probs = vec![
             i16x8::from_slice(&[1111, 2222, 3333, 4444, 5555, 6666, 7777, 8888]),
             i16x8::from_slice(&[555, 1555, 2555, 3555, 4555, 5555, 6555, 7555]),
         ];
-        let weights = vec![
+        let mut weights = vec![
             i16x8::from_slice(&[55, 66, 77, 88, 99, 1010, 1111, 1212]),
             i16x8::from_slice(&[88, 99, 1010, 1111, 1212, 1313, 1414, 1515]),
         ];
-        assert_eq!(model::mix(&probs, &weights, 2), 1026);
 
         let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
         unsafe {
@@ -293,9 +294,26 @@ mod tests {
             ptr::copy(weights.as_ptr() as *const _, memory[1024..].as_mut_ptr(), 32);
         }
 
-        assert_eq!(test.instance
-                       .get_typed_func::<(i32, i32, u32), (u32)>(&test.store, "mix").unwrap()
-                       .call(&mut test.store, (0, 1024, 2)).unwrap(), 1026);
+        // mix and train a while
+        for _ in 0..50 {
+            assert_eq!(test.instance
+                           .get_typed_func::<(i32, i32, u32), (i32)>(&test.store, "mix").unwrap()
+                           .call(&mut test.store, (0, 1024, 2)).unwrap(), model::mix(&probs, &weights, 2));
+
+            loop {
+                let bit = (r.next_u32() & 1) as i32;
+                let current_prob = -750 + (r.next_u32() % 1500) as i32;
+
+                let prediction_error = ((bit << 12) - current_prob) * 7;
+                if prediction_error < -32768 || prediction_error >= 32768 { continue; }
+
+                model::train(&probs, &mut weights, 2, bit, current_prob);
+                test.instance
+                    .get_typed_func::<(i32, i32, u32, i32, i32), ()>(&test.store, "train").unwrap()
+                    .call(&mut test.store, (0, 1024, 2, bit, current_prob)).unwrap();
+                break;
+            }
+        }
     }
 
     #[test]

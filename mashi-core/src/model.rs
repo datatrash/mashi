@@ -400,114 +400,114 @@ impl Model {
 
         self.bit_history_hash = (1 << self.bit_index) | self.bit_history;
 
-                let mut probs_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
-                for i in 0..self.num_active_context_models {
-                    let mut hash = self.context_model_byte_hashes[i];
-                    hash ^= ((1 << self.bit_index) | (self.bit_history & BIT_MASKS[i % NUM_BASE_CONTEXT_MODELS])) as u32;
+        let mut probs_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
+        for i in 0..self.num_active_context_models {
+            let mut hash = self.context_model_byte_hashes[i];
+            hash ^= ((1 << self.bit_index) | (self.bit_history & BIT_MASKS[i % NUM_BASE_CONTEXT_MODELS])) as u32;
 
-                    let checksum = hash;
+            let checksum = hash;
 
-                    const BUCKET_SIZE: u32 = 4;
-                    hash = (hash & ((HASH_ENTRIES as u32) / BUCKET_SIZE - 1)) * BUCKET_SIZE;
+            const BUCKET_SIZE: u32 = 4;
+            hash = (hash & ((HASH_ENTRIES as u32) / BUCKET_SIZE - 1)) * BUCKET_SIZE;
 
-                    // Check checksums in bucket, starting with the first entry (LRU)
-                    let mut bucket_index = 0;
-                    while bucket_index < BUCKET_SIZE && unsafe { (*self.hash_table.offset(hash as _)).checksum } != checksum {
-                        hash += 1;
-                        bucket_index += 1;
-                    }
+            // Check checksums in bucket, starting with the first entry (LRU)
+            let mut bucket_index = 0;
+            while bucket_index < BUCKET_SIZE && unsafe { (*self.hash_table.offset(hash as _)).checksum } != checksum {
+                hash += 1;
+                bucket_index += 1;
+            }
 
-                    // If no checksums match in bucket, adjust hash/bucket_index to point to last entry and replace it with a new entry
-                    if bucket_index == BUCKET_SIZE {
-                        hash -= 1;
-                        bucket_index -= 1;
-                        unsafe { *self.hash_table.offset(hash as _) = HashTableEntry::new() };
-                    }
+            // If no checksums match in bucket, adjust hash/bucket_index to point to last entry and replace it with a new entry
+            if bucket_index == BUCKET_SIZE {
+                hash -= 1;
+                bucket_index -= 1;
+                unsafe { *self.hash_table.offset(hash as _) = HashTableEntry::new() };
+            }
 
-                    // Swap entries and adjust hash/bucket_index until current entry is the first in the bucket (LRU)
-                    while bucket_index > 0 {
-                        let swap_entry = unsafe { *self.hash_table.offset(hash as _) };
-                        unsafe { *self.hash_table.offset(hash as _) = *self.hash_table.offset((hash - 1) as _) };
-                        hash -= 1;
-                        bucket_index -= 1;
-                        unsafe { *self.hash_table.offset(hash as _) = swap_entry };
-                    }
+            // Swap entries and adjust hash/bucket_index until current entry is the first in the bucket (LRU)
+            while bucket_index > 0 {
+                let swap_entry = unsafe { *self.hash_table.offset(hash as _) };
+                unsafe { *self.hash_table.offset(hash as _) = *self.hash_table.offset((hash - 1) as _) };
+                hash -= 1;
+                bucket_index -= 1;
+                unsafe { *self.hash_table.offset(hash as _) = swap_entry };
+            }
 
-                    let entry = unsafe { &mut *self.hash_table.offset(hash as _) };
-                    entry.checksum = checksum;
+            let entry = unsafe { &mut *self.hash_table.offset(hash as _) };
+            entry.checksum = checksum;
 
-                    self.context_model_hashes[i] = hash;
+            self.context_model_hashes[i] = hash;
 
-                    // Indirect model
-                    let counts = entry.indirect_counts;
-                    let indirect_prob_index = (i << 16) | (counts as usize);
-                    self.context_model_indirect_prob_indices[i] = indirect_prob_index;
-                    let prediction = stretch((dis_model_context.indirect_probs[indirect_prob_index] as u32) >> 4, &self.stretch_tab);
+            // Indirect model
+            let counts = entry.indirect_counts;
+            let indirect_prob_index = (i << 16) | (counts as usize);
+            self.context_model_indirect_prob_indices[i] = indirect_prob_index;
+            let prediction = stretch((dis_model_context.indirect_probs[indirect_prob_index] as u32) >> 4, &self.stretch_tab);
 
-                    unsafe {
-                        *probs_ptr = prediction as _;
-                        probs_ptr = probs_ptr.offset(1);
-                    }
+            unsafe {
+                *probs_ptr = prediction as _;
+                probs_ptr = probs_ptr.offset(1);
+            }
 
-                    // Stationary model
-                    let counts = entry.stationary_counts;
-                    let prob = counts & 0x003fffff;
-                    let prediction = stretch(prob >> 10, &self.stretch_tab);
+            // Stationary model
+            let counts = entry.stationary_counts;
+            let prob = counts & 0x003fffff;
+            let prediction = stretch(prob >> 10, &self.stretch_tab);
 
-                    unsafe {
-                        *probs_ptr = prediction as _;
-                        probs_ptr = probs_ptr.offset(1);
-                    }
+            unsafe {
+                *probs_ptr = prediction as _;
+                probs_ptr = probs_ptr.offset(1);
+            }
 
-                    // Run model
-                    let count = entry.run_count as i32;
-                    let symbol = entry.run_symbol as i32;
+            // Run model
+            let count = entry.run_count as i32;
+            let symbol = entry.run_symbol as i32;
 
-                    let prediction = stretch((((2048 / (count + 1)) * (symbol * -2 + 1)) & 0x0fff) as _, &self.stretch_tab);
+            let prediction = stretch((((2048 / (count + 1)) * (symbol * -2 + 1)) & 0x0fff) as _, &self.stretch_tab);
 
-                    unsafe {
-                        *probs_ptr = prediction as _;
-                        probs_ptr = probs_ptr.offset(1);
-                    }
-                }
+            unsafe {
+                *probs_ptr = prediction as _;
+                probs_ptr = probs_ptr.offset(1);
+            }
+        }
 
-                for _ in 0..NUM_CONST_MODELS {
-                    let prediction = 1024;
+        for _ in 0..NUM_CONST_MODELS {
+            let prediction = 1024;
 
-                    unsafe {
-                        *probs_ptr = prediction;
-                        probs_ptr = probs_ptr.offset(1);
-                    }
-                }
+            unsafe {
+                *probs_ptr = prediction;
+                probs_ptr = probs_ptr.offset(1);
+            }
+        }
 
-                for i in 0..NUM_MATCH_MODELS {
-                    let prob = self.match_models[i].prob(&self.histories[0]);
-                    let prediction = stretch(prob, &self.stretch_tab);
+        for i in 0..NUM_MATCH_MODELS {
+            let prob = self.match_models[i].prob(&self.histories[0]);
+            let prediction = stretch(prob, &self.stretch_tab);
 
-                    unsafe {
-                        *probs_ptr = prediction as _;
-                        probs_ptr = probs_ptr.offset(1);
-                    }
-                }
+            unsafe {
+                *probs_ptr = prediction as _;
+                probs_ptr = probs_ptr.offset(1);
+            }
+        }
 
         // debug: print all stage_1_probs that were calculated
-        /*let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
+        let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
         while probs_print_ptr != probs_ptr {
             unsafe {
                 print!("{:?} @@ ", *probs_print_ptr);
                 probs_print_ptr = probs_print_ptr.offset(1);
             }
-        }*/
+        }
 
         for i in 0..4 {
-            self.stage_1_weight_contexts[i] = self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1 - i as i32) as usize) as _;
+            //self.stage_1_weight_contexts[i] = self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1 - i as i32) as usize) as _;
         }
-        self.stage_1_weight_contexts[4] = (self.histories[0].hash(0xff) & 0xff) as _;
+        /*self.stage_1_weight_contexts[4] = (self.histories[0].hash(0xff) & 0xff) as _;
         self.stage_1_weight_contexts[5] = self.bit_history_hash as _;
         self.stage_1_weight_contexts[6] = ((squash(unsafe { *(self.stage_1_probs.as_ptr() as *const i16).offset((self.num_model_outputs - 1) as _) } as i32) as i32) >> 6) // Last match model prob (i.e. some function of the [likely] longest match length/prediction)
             | if self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1) as usize) == self.histories[0].get((self.histories[0].byte_history_pos as i32 - 2) as usize) { 1 << 6 } else { 0 }
             | if self.histories[0].get((self.histories[0].byte_history_pos as i32 - 2) as usize) == self.histories[0].get((self.histories[0].byte_history_pos as i32 - 3) as usize) { 1 << 7 } else { 0 };
-
+*/
         let mut probs_ptr: *mut i16 = self.stage_2_probs.as_ptr() as *mut _;
         for i in 0..8 {
             let prediction = mix(
@@ -522,8 +522,17 @@ impl Model {
                 probs_ptr = probs_ptr.offset(1);
             }
         }
+        // debug: print all stage_1_weight_contexts that were calculated
+        /*for i in 0..8 {
+            print!("{:?} @@ ", self.stage_1_weight_contexts[i]);
+        }*/
+        // debug: print all stage_2_probs that were calculated
+        /*for i in 0..8 {
+            print!("{:?} @@ ", self.stage_2_probs[0].as_array()[i]);
+        }*/
+
         self.stage_2_prob = mix(&self.stage_2_probs, &dis_model_context.stage_2_weights, 8 / MIX_VECTOR_SIZE);
-        //print!("{} // ", self.stage_2_prob);
+        print!("{} // ", self.stage_2_prob);
 
         //self.stage_2_prob = 0;
 
@@ -551,83 +560,83 @@ impl Model {
     // update assumes prob has been called _once_ for the current bit _before_ update has been called!
     pub fn update(&mut self, bit: u32, is_in_code_section: bool) {
         let dis_model_context = &mut self.dis_model_contexts[self.dis_model_state as usize];
+        /*
+                // Update context models
+                for i in 0..self.num_active_context_models {
+                    // Indirect model
+                    // Update indirect prob
+                    let indirect_prob_index = self.context_model_indirect_prob_indices[i];
+                    let mut indirect_prob = dis_model_context.indirect_probs[indirect_prob_index] as i32;
+                    indirect_prob += (((bit as i32) << 16) - indirect_prob) >> 6;
+                    dis_model_context.indirect_probs[indirect_prob_index] = indirect_prob as u16;
 
-        // Update context models
-        for i in 0..self.num_active_context_models {
-            // Indirect model
-            // Update indirect prob
-            let indirect_prob_index = self.context_model_indirect_prob_indices[i];
-            let mut indirect_prob = dis_model_context.indirect_probs[indirect_prob_index] as i32;
-            indirect_prob += (((bit as i32) << 16) - indirect_prob) >> 6;
-            dis_model_context.indirect_probs[indirect_prob_index] = indirect_prob as u16;
+                    // Update counts
+                    let hash = self.context_model_hashes[i];
+                    let entry = unsafe { &mut *self.hash_table.offset(hash as _) };
+                    let counts = entry.indirect_counts;
+                    let mut counts_zero = counts & 0x3f;
+                    let mut counts_one = (counts >> 6) & 0x3f;
+                    let last_bits = counts >> 12;
 
-            // Update counts
-            let hash = self.context_model_hashes[i];
-            let entry = unsafe { &mut *self.hash_table.offset(hash as _) };
-            let counts = entry.indirect_counts;
-            let mut counts_zero = counts & 0x3f;
-            let mut counts_one = (counts >> 6) & 0x3f;
-            let last_bits = counts >> 12;
+                    if bit == 0 {
+                        if counts_zero < 63 {
+                            counts_zero += 1;
+                        }
 
-            if bit == 0 {
-                if counts_zero < 63 {
-                    counts_zero += 1;
+                        if counts_one > 9 {
+                            counts_one = 9;
+                        }
+                    } else {
+                        if counts_one < 63 {
+                            counts_one += 1;
+                        }
+
+                        if counts_zero > 9 {
+                            counts_zero = 9;
+                        }
+                    }
+
+                    entry.indirect_counts = ((last_bits << 13) | (bit << 12) | (counts_one << 6) | counts_zero) & 0xffff;
+
+                    // Stationary model
+                    let counts = entry.stationary_counts as i32;
+
+                    let mut prob = counts & 0x003fffff;
+                    let mut count = counts >> 22;
+
+                    let max = 1 << 22;
+                    let delta = max >> 12;
+                    prob += ((((bit as i32) << 22) - prob) << 9) / (count + delta);
+
+                    if count < 256 {
+                        count += 1;
+                    }
+
+                    entry.stationary_counts = ((count << 22) | prob) as u32;
+
+                    // Run model
+                    let mut count = entry.run_count as i32;
+                    let symbol = entry.run_symbol as u32;
+
+                    if bit != symbol as _ {
+                        count = 0;
+                    }
+
+                    if count < 1024 {
+                        count += 1;
+                    }
+
+                    entry.run_count = count as _;
+                    entry.run_symbol = bit as _;
                 }
 
-                if counts_one > 9 {
-                    counts_one = 9;
+                // Update match models
+                for i in 0..NUM_MATCH_MODELS {
+                    self.match_models[i].update_bit(bit);
                 }
-            } else {
-                if counts_one < 63 {
-                    counts_one += 1;
-                }
-
-                if counts_zero > 9 {
-                    counts_zero = 9;
-                }
-            }
-
-            entry.indirect_counts = ((last_bits << 13) | (bit << 12) | (counts_one << 6) | counts_zero) & 0xffff;
-
-            // Stationary model
-            let counts = entry.stationary_counts as i32;
-
-            let mut prob = counts & 0x003fffff;
-            let mut count = counts >> 22;
-
-            let max = 1 << 22;
-            let delta = max >> 12;
-            prob += ((((bit as i32) << 22) - prob) << 9) / (count + delta);
-
-            if count < 256 {
-                count += 1;
-            }
-
-            entry.stationary_counts = ((count << 22) | prob) as u32;
-
-            // Run model
-            let mut count = entry.run_count as i32;
-            let symbol = entry.run_symbol as u32;
-
-            if bit != symbol as _ {
-                count = 0;
-            }
-
-            if count < 1024 {
-                count += 1;
-            }
-
-            entry.run_count = count as _;
-            entry.run_symbol = bit as _;
-        }
-
-        // Update match models
-        for i in 0..NUM_MATCH_MODELS {
-            self.match_models[i].update_bit(bit);
-        }
-
+        */
         // Update model weights
-        /*let mut probs_ptr: *mut i16 = self.stage_2_probs.as_ptr() as *mut _;
+        let mut probs_ptr: *mut i16 = self.stage_2_probs.as_ptr() as *mut _;
         for i in 0..8 {
             let prediction = unsafe {
                 let prediction = *probs_ptr;
@@ -650,7 +659,8 @@ impl Model {
             8 / MIX_VECTOR_SIZE,
             bit as _,
             squash(self.stage_2_prob) as _,
-        );*/
+        );
+        //for i in 0..8 { print!("{} ++ {} /! ", self.stage_2_probs[0].to_array()[i], dis_model_context.stage_2_weights[0].as_array()[i]); }
 
         for i in 0..NUM_APM_STAGES {
             dis_model_context.apm_stages[i].update(bit);
@@ -740,7 +750,7 @@ pub fn mix(probs: &[i16x8], weights: &[i16x8], count: usize) -> i32 {
     }
 }
 
-fn train(probs: &[i16x8], weights: &mut [i16x8], count: usize, bit: i32, current_prob: i32) {
+pub fn train(probs: &[i16x8], weights: &mut [i16x8], count: usize, bit: i32, current_prob: i32) {
     let prediction_error = ((bit << 12) - current_prob) * 7;
     if prediction_error < -32768 || prediction_error >= 32768 {
         panic!("Prediction error fail: {}", prediction_error);

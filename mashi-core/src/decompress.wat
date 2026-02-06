@@ -180,6 +180,19 @@
         )
     )
 
+    (func $mul_hi (param $a v128) (param $b v128) (result v128)
+        (i16x8.narrow_i32x4_s
+            (i32x4.shr_s
+                (i32x4.extmul_low_i16x8_s (local.get $a) (local.get $b))
+                (i32.const 16)
+            )
+            (i32x4.shr_s
+                (i32x4.extmul_high_i16x8_s (local.get $a) (local.get $b))
+                (i32.const 16)
+            )
+        )
+    )
+
     (func $mix (export "mix") (param $probs_ptr i32) (param $weights_ptr i32) (param $count i32) (result i32)
         (local $x i32)
         (local $acc v128)
@@ -190,16 +203,7 @@
             (local.set $acc
                 (i16x8.add
                     (local.get $acc)
-                    (i16x8.narrow_i32x4_s
-                        (i32x4.shr_s
-                            (i32x4.extmul_low_i16x8_s (v128.load (local.get $probs_ptr)) (v128.load (local.get $weights_ptr)))
-                            (i32.const 16)
-                        )
-                        (i32x4.shr_s
-                            (i32x4.extmul_high_i16x8_s (v128.load (local.get $probs_ptr)) (v128.load (local.get $weights_ptr)))
-                            (i32.const 16)
-                        )
-                    )
+                    (call $mul_hi (v128.load (local.get $probs_ptr)) (v128.load (local.get $weights_ptr)))
                 )
             )
 
@@ -220,6 +224,49 @@
         )
 
         (i16x8.extract_lane_s 0 (local.get $acc))
+    )
+
+    (func $train (export "train") (param $probs_ptr i32) (param $weights_ptr i32) (param $count i32) (param $bit i32) (param $current_prob i32)
+        (local $prediction_error v128)
+        (local $x i32)
+
+        (local.set $prediction_error
+            (i16x8.splat
+                (i32.mul
+                    (i32.sub
+                        (i32.shl (local.get $bit) (i32.const 12))
+                        (local.get $current_prob)
+                    )
+                    (i32.const 7)
+                )
+            )
+        )
+
+        (loop $train_loop
+            (v128.store
+                (local.get $weights_ptr)
+                (i16x8.add_sat_s
+                    (v128.load (local.get $weights_ptr))
+                    (i16x8.shr_s
+                        (i16x8.add
+                            (call $mul_hi
+                                (i16x8.shl
+                                    (v128.load (local.get $probs_ptr))
+                                    (i32.const 1)
+                                )
+                                (local.get $prediction_error)
+                            )
+                            (i16x8.splat (i32.const 1))
+                        )
+                        (i32.const 1)
+                    )
+                )
+            )
+
+            (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 16)))
+            (local.set $weights_ptr (i32.add (local.get $weights_ptr) (i32.const 16)))
+            (br_if $train_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (local.get $count)))
+        )
     )
 
     (func $model_init (export "model_init")
@@ -826,13 +873,14 @@
         ;; todo: all stage_1_probs can be stretched in a loop instead of every time we write one, except the const model which we should pre-unstretch so it returns the right value
         ;; after stretching
 
-        (; debug: log all stage_1_probs ;)
-        (;local.set $i (i32.const 0))
+        ;; debug: log all stage_1_probs
+        (local.set $i (i32.const 0))
         (loop $debug_stage_1_probs_loop
             (call $l_i32 (i32.load16_s offset=0x0f06000 (local.get $i)))
             (local.set $i (i32.add (local.get $i) (i32.const 2)))
             (br_if $debug_stage_1_probs_loop (i32.lt_u (local.get $i) (local.get $probs_ptr)))
-        ;)
+        )
+        (;
 
         (local.set $i (i32.const 0))
         (loop $set_stage_1_weight_contexts_loop
@@ -879,6 +927,7 @@
                 )
             )
         )
+        ;)
 
         (local.set $probs_ptr (i32.const 0))
         (loop $create_stage_2_probs_loop
@@ -887,11 +936,11 @@
                 (call $mix
                     (i32.const 0x0f06000 (;stage_1_probs;))
                     (i32.add
-                        (i32.const 0x25400000)
+                        (i32.const 0x25400000 (;stage_1_weights;))
                         (i32.mul
                             (i32.add
                                 (i32.shl (local.get $i) (i32.const 8))
-                                (i32.load offset=0x0f07000 (i32.shl (local.get $i) (i32.const 2)))
+                                (i32.load offset=0x0f07000 (;stage_1_weight_contexts;) (i32.shl (local.get $i) (i32.const 2)))
                             )
                             (i32.const 17) ;; NUM_MAX_MODEL_OUTPUTS / MIX_VECTOR_SIZE
                         )
@@ -903,6 +952,21 @@
             (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
             (br_if $create_stage_2_probs_loop (i32.lt_u (local.get $probs_ptr) (i32.const 16)))
         )
+        ;; debug: log all stage_1_weight_contexts
+        (;local.set $i (i32.const 0))
+        (loop $debug_stage_1_weight_contexts_loop
+            (call $l_i32 (i32.load offset=0x0f0700 (;stage_1_weight_contexts;) (i32.shl (local.get $i) (i32.const 2))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br_if $debug_stage_1_weight_contexts_loop (i32.lt_u (local.get $i) (i32.const 8)))
+        ;)
+        ;; debug: log all stage_2_probs
+        (;local.set $i (i32.const 0))
+        (loop $debug_stage_2_probs_loop
+            (call $l_i32 (i32.load16_s offset=0x0f08000 (local.get $i)))
+            (local.set $i (i32.add (local.get $i) (i32.const 2)))
+            (br_if $debug_stage_2_probs_loop (i32.lt_u (local.get $i) (i32.const 16)))
+        ;)
+
         (global.set $stage_2_prob
             (call $mix
                 (i32.const 0x0f08000 (;stage_2_probs;))
@@ -910,7 +974,7 @@
                 (i32.const 1)
             )
         )
-        ;;(call $l_u32 (global.get $stage_2_prob))
+        (call $l_i32 (global.get $stage_2_prob))
 
         (local.set $prob (global.get $stage_2_prob))
 
@@ -957,7 +1021,8 @@
         (local $counts_zero i32)
         (local $counts_one i32)
         (local $last_bits i32)
-
+        (local $probs_ptr i32)
+(;
         (; update context models ;)
         (local.set $i (i32.const 0))
         (loop $update_context_models_loop
@@ -1115,6 +1180,44 @@
         (loop $mm_loop
             (call $match_model_update_bit (local.get $i) (local.get $bit))
             (br_if $mm_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
+        )
+;)
+        ;; update model weights
+        (local.set $i (i32.const 0))
+        (loop $update_model_weights_loop
+            (call $train
+                (i32.const 0x0f06000 (;stage_1_probs;))
+                (i32.add
+                    (i32.const 0x25400000 (;stage_1_weights;))
+                    (i32.mul
+                        (i32.add
+                            (i32.shl (local.get $i) (i32.const 8))
+                            (i32.load offset=0x0f07000 (i32.shl (local.get $i) (i32.const 2)))
+                        )
+                        (i32.const 17) ;; NUM_MAX_MODEL_OUTPUTS / MIX_VECTOR_SIZE
+                    )
+                )
+                (i32.shr_s (global.get $num_model_outputs) (i32.const 3))
+                (local.get $bit)
+                (call $squash (i32.load16_s offset=0x0f08000 (;stage_2_probs;) (local.get $probs_ptr)))
+            )
+
+            (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
+            (br_if $update_model_weights_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
+        )
+        (call $train
+            (i32.const 0x0f08000 (;stage_2_probs;))
+            (i32.add (i32.const 0x0f0d000 (;dis_model_context.stage_2_weights;)) (i32.shl (global.get $dis_model_state) (i32.const 4)))
+            (i32.const 1)
+            (local.get $bit)
+            (call $squash (global.get $stage_2_prob))
+        )
+        ;; debug print
+        (local.set $i (i32.const 0))
+        (loop $debug_print_loop
+            ;;(call $l_i32 (i32.load16_s (i32.add (local.get $i) (i32.const 0x0f08000 (;stage_2_probs;)))))
+            ;;(call $l_i32 (i32.load16_s (i32.add (local.get $i) (i32.add (i32.const 0x0f0d000 (;dis_model_context.stage_2_weights;)) (i32.shl (global.get $dis_model_state) (i32.const 4))))))
+            (br_if $debug_print_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 2))) (i32.const 16)))
         )
 
         ;; update apm stages
