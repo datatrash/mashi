@@ -10,14 +10,15 @@ pub use compressor::{compress, decompress};
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use crate::dis_model::NUM_DIS_MODEL_STATES;
     use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, BIT_MASKS, BYTE_MASKS, NUM_MATCH_MODELS};
+    use num_traits::ToBytes;
     use rand::prelude::StdRng;
     use rand::{Rng, RngCore, SeedableRng};
     use std::path::PathBuf;
-    use std::{fs, println, slice};
-    use num_traits::ToBytes;
+    use std::simd::i16x8;
+    use std::{fs, println, ptr, slice};
     use wasmi::{Caller, Engine, Linker, Module, Store};
-    use crate::dis_model::NUM_DIS_MODEL_STATES;
 
     #[test]
     fn roundtrip() {
@@ -274,6 +275,30 @@ mod tests {
     }
 
     #[test]
+    fn test_mix() {
+        let mut test = Test::new();
+        let probs = vec![
+            i16x8::from_slice(&[1111, 2222, 3333, 4444, 5555, 6666, 7777, 8888]),
+            i16x8::from_slice(&[555, 1555, 2555, 3555, 4555, 5555, 6555, 7555]),
+        ];
+        let weights = vec![
+            i16x8::from_slice(&[55, 66, 77, 88, 99, 1010, 1111, 1212]),
+            i16x8::from_slice(&[88, 99, 1010, 1111, 1212, 1313, 1414, 1515]),
+        ];
+        assert_eq!(model::mix(&probs, &weights, 2), 1026);
+
+        let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
+        unsafe {
+            ptr::copy(probs.as_ptr() as *const _, memory[0..].as_mut_ptr(), 32);
+            ptr::copy(weights.as_ptr() as *const _, memory[1024..].as_mut_ptr(), 32);
+        }
+
+        assert_eq!(test.instance
+                       .get_typed_func::<(i32, i32, u32), (u32)>(&test.store, "mix").unwrap()
+                       .call(&mut test.store, (0, 1024, 2)).unwrap(), 1026);
+    }
+
+    #[test]
     fn test_indirect_probs() {
         let mut test = Test::new();
         test.model_init();
@@ -290,9 +315,6 @@ mod tests {
     }
 
     fn wasm_roundtrip(src: &[u8]) {
-        // Do a Rust compressor --> WASM decompressor roundtrip
-        use wasmi::*;
-
         let (compressed, _) = compress(&src, |_| ());
         let (high_level_decompressed, model) = decompress(&compressed, |_| ());
         assert_eq!(&high_level_decompressed, &src);

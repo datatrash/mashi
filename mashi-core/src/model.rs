@@ -499,33 +499,33 @@ impl Model {
             }
         }*/
 
-        /*
-                        for i in 0..4 {
-                            self.stage_1_weight_contexts[i] = self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1 - i as i32) as usize) as _;
-                        }
-                        self.stage_1_weight_contexts[4] = (self.histories[0].hash(0xff) & 0xff) as _;
-                        self.stage_1_weight_contexts[5] = self.bit_history_hash as _;
-                        self.stage_1_weight_contexts[6] = ((squash(unsafe { *(self.stage_1_probs.as_ptr() as *const i16).offset((self.num_model_outputs - 1) as _) } as i32) as i32) >> 6) // Last match model prob (i.e. some function of the [likely] longest match length/prediction)
-                            | if self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1) as usize) == self.histories[0].get((self.histories[0].byte_history_pos as i32 - 2) as usize) { 1 << 6 } else { 0 }
-                            | if self.histories[0].get((self.histories[0].byte_history_pos as i32 - 2) as usize) == self.histories[0].get((self.histories[0].byte_history_pos as i32 - 3) as usize) { 1 << 7 } else { 0 };
-                        let mut probs_ptr: *mut i16 = self.stage_2_probs.as_ptr() as *mut _;
-                        for i in 0..8 {
-                            let prediction = mix(
-                                &self.stage_1_probs,
-                                &dis_model_context.stage_1_weights
-                                    [(i * 256 + (self.stage_1_weight_contexts[i] as usize)) * NUM_MAX_MODEL_OUTPUTS / MIX_VECTOR_SIZE..],
-                                self.num_model_outputs / MIX_VECTOR_SIZE,
-                            );
+        for i in 0..4 {
+            self.stage_1_weight_contexts[i] = self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1 - i as i32) as usize) as _;
+        }
+        self.stage_1_weight_contexts[4] = (self.histories[0].hash(0xff) & 0xff) as _;
+        self.stage_1_weight_contexts[5] = self.bit_history_hash as _;
+        self.stage_1_weight_contexts[6] = ((squash(unsafe { *(self.stage_1_probs.as_ptr() as *const i16).offset((self.num_model_outputs - 1) as _) } as i32) as i32) >> 6) // Last match model prob (i.e. some function of the [likely] longest match length/prediction)
+            | if self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1) as usize) == self.histories[0].get((self.histories[0].byte_history_pos as i32 - 2) as usize) { 1 << 6 } else { 0 }
+            | if self.histories[0].get((self.histories[0].byte_history_pos as i32 - 2) as usize) == self.histories[0].get((self.histories[0].byte_history_pos as i32 - 3) as usize) { 1 << 7 } else { 0 };
 
-                            unsafe {
-                                *probs_ptr = prediction as _;
-                                probs_ptr = probs_ptr.offset(1);
-                            }
-                        }
-                        self.stage_2_prob = mix(&self.stage_2_probs, &dis_model_context.stage_2_weights, 8 / MIX_VECTOR_SIZE);
-                */
+        let mut probs_ptr: *mut i16 = self.stage_2_probs.as_ptr() as *mut _;
+        for i in 0..8 {
+            let prediction = mix(
+                &self.stage_1_probs,
+                &dis_model_context.stage_1_weights
+                    [(i * 256 + (self.stage_1_weight_contexts[i] as usize)) * NUM_MAX_MODEL_OUTPUTS / MIX_VECTOR_SIZE..],
+                self.num_model_outputs / MIX_VECTOR_SIZE,
+            );
 
-        self.stage_2_prob = 0;
+            unsafe {
+                *probs_ptr = prediction as _;
+                probs_ptr = probs_ptr.offset(1);
+            }
+        }
+        self.stage_2_prob = mix(&self.stage_2_probs, &dis_model_context.stage_2_weights, 8 / MIX_VECTOR_SIZE);
+        //print!("{} // ", self.stage_2_prob);
+
+        //self.stage_2_prob = 0;
 
         let mut prob = self.stage_2_prob;
         for i in 0..NUM_APM_STAGES {
@@ -725,7 +725,7 @@ fn stretch(p: u32, stretch_tab: &[i32]) -> i32 {
     stretch_tab[p as usize]
 }
 
-fn mix(probs: &[i16x8], weights: &[i16x8], count: usize) -> i32 {
+pub fn mix(probs: &[i16x8], weights: &[i16x8], count: usize) -> i32 {
     unsafe {
         let mut acc = i16x8::splat(0);
         // Vertical sums

@@ -20,8 +20,6 @@
     ;; model state
     ;;dis_model
     (global $dis_model_state (mut i32) (i32.const 0))
-    ;;hash_table
-    ;;dis_model_contexts
     (global $stage_2_prob (mut i32) (i32.const 0))
     (global $bit_history (mut i32) (i32.const 0))
     (global $bit_index (mut i32) (i32.const 0))
@@ -56,11 +54,13 @@
         "\fe\0f\00\00"
     )
     ;; byte_history_pos = 0x00f1000
-    ;; unused: 0x2000000..0x3000000, so maybe shift everything so we need less memory, meh
+    ;; depack to 0x1000000..0x3000000, so maybe shift everything when we need less memory, meh
     ;; for every dis_model (max 32 of them for now, increase this if we have more than DisModelStates + 1):
     ;;;; apm_indices = 0x0f02000
     ;;;; apm_weights = 0x0f03000
-    ;;;; apm_tabs = 0xe000000..0x1ac00000 (32 dismodels, 3 tabs, length per tab = 0x110000 * u16 = 0x220000, so total = )
+    ;;;; apm_tabs = 0xe000000..0x1ac00000 (32 dismodels, 3 tabs, length per tab = 0x110000 * u16 = 0x220000)
+    ;;;; stage_1_weights = 0x25400000..0x26500000 (32 dismodels, 34816 weights per model * i16x8 (= 16) = 0x88000 per dismodel = 1100000
+    ;;;; stage_2_weights = 0x0f0d000..0x0f0d200 (32 dismodels, 16 bytes per weight)
     ;;;; byte_history = 0x3000000..0x5000000 (length per history = 0x100000, bytes are interleaved so byte 0 = dismodelcontext 0, 1 = dismodelcontext 1, 32 = second byte for dismodelcontext 0, etc)
     ;;;; context_indirect_probs = 0x1ac00000..0x25400000 (length per vec = 0x2a0000 * u16 = 0x540000, 32 different indirect_probs tables)
     ;; apm_mix_weights
@@ -89,7 +89,7 @@
     ;;;; offset 0xc = run_count
     ;;;; offset 0xe = run_symbol
 
-    (memory (export "memory") 9536) ;; bomb that tree line about 596mb back
+    (memory (export "memory") 9808) ;; bomb that tree line about 613mb back
 
     (func $range_decode_bit (param $prob i32) (result i32)
         (local $bound i32)
@@ -178,6 +178,48 @@
                 )
             )
         )
+    )
+
+    (func $mix (export "mix") (param $probs_ptr i32) (param $weights_ptr i32) (param $count i32) (result i32)
+        (local $x i32)
+        (local $acc v128)
+
+        (local.set $acc (i16x8.splat (i32.const 0)))
+
+        (loop $acc_loop
+            (local.set $acc
+                (i16x8.add
+                    (local.get $acc)
+                    (i16x8.narrow_i32x4_s
+                        (i32x4.shr_s
+                            (i32x4.extmul_low_i16x8_s (v128.load (local.get $probs_ptr)) (v128.load (local.get $weights_ptr)))
+                            (i32.const 16)
+                        )
+                        (i32x4.shr_s
+                            (i32x4.extmul_high_i16x8_s (v128.load (local.get $probs_ptr)) (v128.load (local.get $weights_ptr)))
+                            (i32.const 16)
+                        )
+                    )
+                )
+            )
+
+            (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 16)))
+            (local.set $weights_ptr (i32.add (local.get $weights_ptr) (i32.const 16)))
+            (br_if $acc_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (local.get $count)))
+        )
+
+        (local.set $x (i32.const 0))
+        (loop $horsum_loop
+            (local.set $acc
+                (i16x8.add
+                    (i8x16.shuffle 0 1 4 5 8 9 12 13 16 17 20 21 24 25 28 29 (local.get $acc) (local.get $acc))
+                    (i8x16.shuffle 2 3 6 7 10 11 14 15 18 19 22 23 26 27 30 31 (local.get $acc) (local.get $acc))
+                )
+            )
+            (br_if $horsum_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (i32.const 3)))
+        )
+
+        (i16x8.extract_lane_s 0 (local.get $acc))
     )
 
     (func $model_init (export "model_init")
@@ -792,7 +834,84 @@
             (br_if $debug_stage_1_probs_loop (i32.lt_u (local.get $i) (local.get $probs_ptr)))
         ;)
 
-        (global.set $stage_2_prob (i32.const 0)) ;; hack
+        (local.set $i (i32.const 0))
+        (loop $set_stage_1_weight_contexts_loop
+            (i32.store offset=0x0f0700 (;stage_1_weight_contexts;) (i32.shl (local.get $i) (i32.const 2))
+                (call $history_get (i32.const 0)
+                    (i32.sub
+                        (i32.sub
+                            (call $history_get_byte_history_pos (i32.const 0))
+                            (i32.const 1)
+                        )
+                        (local.get $i)
+                    )
+                )
+            )
+            (br_if $set_stage_1_weight_contexts_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 4)))
+        )
+        (i32.store offset=0x0f0700 (;stage_1_weight_contexts;) (i32.const 16)
+            (i32.and (call $history_hash (i32.const 0) (i32.const 0xff)) (i32.const 0xff))
+        )
+        (i32.store offset=0x0f0700 (;stage_1_weight_contexts;) (i32.const 20) (global.get $bit_history_hash))
+        (i32.store offset=0x0f0700 (;stage_1_weight_contexts;) (i32.const 24)
+            (i32.or
+                (i32.or
+                    (i32.shr_s
+                        (call $squash
+                            (i32.load16_s offset=0x0f06000 (;stage_1_probs;)
+                                (i32.shl (i32.sub (global.get $num_model_outputs) (i32.const 1)) (i32.const 1))
+                            )
+                        )
+                        (i32.const 6)
+                    )
+                    (select (i32.const 64) (i32.const 0)
+                        (i32.eq
+                            (call $history_get (i32.const 0) (i32.sub (call $history_get_byte_history_pos (i32.const 0)) (i32.const 1)))
+                            (call $history_get (i32.const 0) (i32.sub (call $history_get_byte_history_pos (i32.const 0)) (i32.const 2)))
+                        )
+                    )
+                )
+                (select (i32.const 128) (i32.const 0)
+                    (i32.eq
+                        (call $history_get (i32.const 0) (i32.sub (call $history_get_byte_history_pos (i32.const 0)) (i32.const 2)))
+                        (call $history_get (i32.const 0) (i32.sub (call $history_get_byte_history_pos (i32.const 0)) (i32.const 3)))
+                    )
+                )
+            )
+        )
+
+        (local.set $probs_ptr (i32.const 0))
+        (loop $create_stage_2_probs_loop
+            (i32.store16 offset=0x0f08000 (;stage_2_probs;)
+                (local.get $probs_ptr)
+                (call $mix
+                    (i32.const 0x0f06000 (;stage_1_probs;))
+                    (i32.add
+                        (i32.const 0x25400000)
+                        (i32.mul
+                            (i32.add
+                                (i32.shl (local.get $i) (i32.const 8))
+                                (i32.load offset=0x0f07000 (i32.shl (local.get $i) (i32.const 2)))
+                            )
+                            (i32.const 17) ;; NUM_MAX_MODEL_OUTPUTS / MIX_VECTOR_SIZE
+                        )
+                    )
+                    (i32.shr_u (global.get $num_model_outputs) (i32.const 3))
+                )
+            )
+
+            (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
+            (br_if $create_stage_2_probs_loop (i32.lt_u (local.get $probs_ptr) (i32.const 16)))
+        )
+        (global.set $stage_2_prob
+            (call $mix
+                (i32.const 0x0f08000 (;stage_2_probs;))
+                (i32.add (i32.const 0x0f0d000 (;dis_model_context.stage_2_weights;)) (i32.shl (global.get $dis_model_state) (i32.const 4)))
+                (i32.const 1)
+            )
+        )
+        ;;(call $l_u32 (global.get $stage_2_prob))
+
         (local.set $prob (global.get $stage_2_prob))
 
         (local.set $i (i32.const 0))
