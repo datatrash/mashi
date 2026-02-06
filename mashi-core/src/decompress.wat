@@ -13,9 +13,6 @@
     (global $output_size (mut i32) (i32.const 0))
     (global $byte_index (mut i32) (i32.const 0))
 
-    ;; hashing
-    (global $fnv_default i32 (i32.const 2166136261))
-
     ;; range decoder state
     (global $rd_code (mut i32) (i32.const 0))
     (global $rd_range (mut i32) (i32.const -1))
@@ -40,23 +37,6 @@
     ;; apm_tabs = (we have 3 of them)
     ;;;; the first tab is from 0x2200000, then 02500000, then 0x2800000
     ;; squash_tab = 0x00f0000
-    ;; byte_history_pos = 0x00f1000
-    ;; for every dis_model (max 32 of them for now, increase this if we have more DisModelStates + 1):
-    ;;;; apm_indices = 0x0f02000
-    ;;;; apm_weights = 0x0f03000
-    ;;;; byte_history = 0x3000000..0x5000000 (length per history = 0x100000, 32 different histories, bytes are interleaved)
-    ;; for every match_model (NUM_MATCH_MODELS = 8)
-    ;;;; match_model_index_buffer  = 0x5000000..0x5800000 (length per buffer = 0x040000 * 4 bytes = 0x100000)
-    ;; match_model_bit_position  = 0x0f05000
-    ;; match_model_offset        = 0x0f05100
-    ;; match_model_length        = 0x0f05200
-    ;; match_model_history_hash  = 0x0f05300
-    ;; match_model_predicted_bit = 0x0f05400
-    ;; stage_1_probs             = 0x0f06000
-    ;; stage_1_weight_contexts   = 0x0f07000
-    ;; stage_2_probs             = 0x0f08000
-
-    ;; squash_tab
     (data (i32.const 0x00f0000)
         "\01\00\00\00\02\00\00\00\03\00\00\00\06\00\00\00"
         "\0a\00\00\00\10\00\00\00\1b\00\00\00\2d\00\00\00"
@@ -68,11 +48,25 @@
         "\f5\0f\00\00\f9\0f\00\00\fc\0f\00\00\fd\0f\00\00"
         "\fe\0f\00\00"
     )
-
+    ;; byte_history_pos = 0x00f1000
+    ;; for every dis_model (max 32 of them for now, increase this if we have more DisModelStates + 1):
+    ;;;; apm_indices = 0x0f02000
+    ;;;; apm_weights = 0x0f03000
+    ;;;; byte_history = 0x3000000..0x5000000 (length per history = 0x100000, 32 different histories, bytes are interleaved)
     ;; apm_mix_weights
     (data (i32.const 0x0f04000) "\02\02\01")
     ;; apm_adjust_rates
     (data (i32.const 0x0f04010) "\03\03\02")
+    ;; for every match_model (NUM_MATCH_MODELS = 8)
+    ;;;; match_model_index_buffer  = 0x5000000..0x5800000 (length per buffer = 0x040000 * 4 bytes = 0x100000)
+    ;; match_model_bit_position  = 0x0f05000
+    ;; match_model_offset        = 0x0f05100
+    ;; match_model_length        = 0x0f05200
+    ;; match_model_history_hash  = 0x0f05300
+    ;; match_model_predicted_bit = 0x0f05400
+    ;; stage_1_probs             = 0x0f06000
+    ;; stage_1_weight_contexts   = 0x0f07000
+    ;; stage_2_probs             = 0x0f08000
 
     (memory (export "memory") 8192) ;; bomb that tree line about 512mb back
 
@@ -361,7 +355,7 @@
     (func $history_hash (export "history_hash") (param $history_idx i32) (param $byte_mask i32) (result i32)
         (local $i i32)
         (local $state i32)
-        (local.set $state (global.get $fnv_default))
+        (local.set $state (i32.const 2166136261))
         (local.set $state (call $hash_byte (local.get $state) (local.get $byte_mask)))
 
         (loop $bit_loop
