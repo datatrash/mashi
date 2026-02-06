@@ -295,14 +295,14 @@ mod tests {
         }
 
         // mix and train a while
-        for _ in 0..50 {
+        for _ in 0..5000 {
             assert_eq!(test.instance
                            .get_typed_func::<(i32, i32, u32), (i32)>(&test.store, "mix").unwrap()
                            .call(&mut test.store, (0, 1024, 2)).unwrap(), model::mix(&probs, &weights, 2));
 
             loop {
                 let bit = (r.next_u32() & 1) as i32;
-                let current_prob = -750 + (r.next_u32() % 1500) as i32;
+                let current_prob = -2047 + (r.next_u32() % 4097) as i32;
 
                 let prediction_error = ((bit << 12) - current_prob) * 7;
                 if prediction_error < -32768 || prediction_error >= 32768 { continue; }

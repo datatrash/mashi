@@ -230,6 +230,26 @@
         (local $prediction_error v128)
         (local $x i32)
 
+        ;; debug
+        (;
+        (local $tmpx i32)
+        (local $tmpy i32)
+        (local $ptr i32)
+        (loop $debug_loop_outer
+            (loop $debug_loop_inner
+                (call $l_i32 (i32.load16_s (i32.add (local.get $probs_ptr) (local.get $ptr))))
+                (call $l_i32 (i32.load16_s (i32.add (local.get $weights_ptr) (local.get $ptr))))
+                (local.set $ptr (i32.add (local.get $ptr) (i32.const 2)))
+                (br_if $debug_loop_inner (i32.lt_u (local.tee $tmpx (i32.add (local.get $tmpx) (i32.const 1))) (i32.const 8)))
+            )
+            ;;(br_if $debug_loop_outer (i32.lt_u (local.tee $tmpy (i32.add (local.get $tmpy) (i32.const 1))) (local.get $count)))
+            (br_if $debug_loop_outer (i32.lt_u (local.tee $tmpy (i32.add (local.get $tmpy) (i32.const 1))) (i32.const 1)))
+        )
+        (call $l_u32 (local.get $bit))
+        (call $l_u32 (local.get $current_prob))
+        ;)
+        ;; debug
+
         (local.set $prediction_error
             (i16x8.splat
                 (i32.mul
@@ -718,7 +738,7 @@
         )
 
         (local.set $i (i32.const 0))
-        (;loop $update_context_models_loop
+        (loop $update_context_models_loop
             (local.set $checksum
                 (local.tee $hash
                     (i32.xor
@@ -870,7 +890,7 @@
 
             (br_if $update_context_models_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (global.get $num_active_context_models)))
         )
-;)
+
         ;; const model
         (i32.store16 offset=0x0f06000 (;stage_1_probs;)
             (local.get $probs_ptr)
@@ -878,7 +898,7 @@
         )
         (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
 
-        ;; update match models
+        ;; match models
         (local.set $i (i32.const 0))
         (loop $update_match_models_loop
             (i32.store16 offset=0x0f06000 (;stage_1_probs;)
@@ -893,17 +913,16 @@
         ;; after stretching
 
         ;; debug: log all stage_1_probs
-        (;local.set $i (i32.const 0))
+        (local.set $i (i32.const 0))
         (loop $debug_stage_1_probs_loop
             (call $l_i32 (i32.load16_s offset=0x0f06000 (local.get $i)))
             (local.set $i (i32.add (local.get $i) (i32.const 2)))
             (br_if $debug_stage_1_probs_loop (i32.lt_u (local.get $i) (local.get $probs_ptr)))
-        ;)
-        (;
+        )
 
         (local.set $i (i32.const 0))
         (loop $set_stage_1_weight_contexts_loop
-            (i32.store offset=0x0f0700 (;stage_1_weight_contexts;) (i32.shl (local.get $i) (i32.const 2))
+            (i32.store offset=0x0f07000 (;stage_1_weight_contexts;) (i32.shl (local.get $i) (i32.const 2))
                 (call $history_get (i32.const 0)
                     (i32.sub
                         (i32.sub
@@ -916,11 +935,11 @@
             )
             (br_if $set_stage_1_weight_contexts_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 4)))
         )
-        (i32.store offset=0x0f0700 (;stage_1_weight_contexts;) (i32.const 16)
+        (i32.store offset=0x0f07000 (;stage_1_weight_contexts;) (i32.const 16)
             (i32.and (call $history_hash (i32.const 0) (i32.const 0xff)) (i32.const 0xff))
         )
-        (i32.store offset=0x0f0700 (;stage_1_weight_contexts;) (i32.const 20) (global.get $bit_history_hash))
-        (i32.store offset=0x0f0700 (;stage_1_weight_contexts;) (i32.const 24)
+        (i32.store offset=0x0f07000 (;stage_1_weight_contexts;) (i32.const 20) (global.get $bit_history_hash))
+        (i32.store offset=0x0f07000 (;stage_1_weight_contexts;) (i32.const 24)
             (i32.or
                 (i32.or
                     (i32.shr_s
@@ -946,7 +965,6 @@
                 )
             )
         )
-        ;)
 
         (local.set $i (i32.const 0))
         (local.set $probs_ptr (i32.const 0))
@@ -964,27 +982,10 @@
             (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
             (br_if $create_stage_2_probs_loop (i32.lt_u (local.get $probs_ptr) (i32.const 16)))
         )
-        ;; debug: log all stage_1_weights
-        (local.set $i (i32.const 0))
-        (local.set $tmp (i32.const 0))
-        (loop $debug_stage_1_weights_loop
-            (loop $debug_stage_1_weights_inner_loop
-                (call $l_i32 (i32.load
-                    (i32.add
-                        (call $get_stage_1_weights_ptr (local.get $i))
-                        (local.get $tmp)
-                    )
-                ))
-                (local.set $tmp (i32.add (local.get $tmp) (i32.const 2)))
-                (br_if $debug_stage_1_weights_inner_loop (i32.lt_u (local.get $tmp) (i32.const 16)))
-            )
-            (local.set $i (i32.add (local.get $i) (i32.const 1)))
-            (br_if $debug_stage_1_weights_loop (i32.lt_u (local.get $i) (i32.const 8)))
-        )
         ;; debug: log all stage_1_weight_contexts
         (;local.set $i (i32.const 0))
         (loop $debug_stage_1_weight_contexts_loop
-            (call $l_i32 (i32.load offset=0x0f0700 (;stage_1_weight_contexts;) (i32.shl (local.get $i) (i32.const 2))))
+            (call $l_i32 (i32.load offset=0x0f07000 (;stage_1_weight_contexts;) (i32.shl (local.get $i) (i32.const 2))))
             (local.set $i (i32.add (local.get $i) (i32.const 1)))
             (br_if $debug_stage_1_weight_contexts_loop (i32.lt_u (local.get $i) (i32.const 8)))
         ;)
@@ -1009,7 +1010,7 @@
 
         (local.set $i (i32.const 0))
         (loop $apm_loop
-            (;local.set $apm_context (call $history_hash (i32.const 0) (i32.sub (i32.shl (i32.const 1) (local.get $i)) (i32.const 1))))
+            (local.set $apm_context (call $history_hash (i32.const 0) (i32.sub (i32.shl (i32.const 1) (local.get $i)) (i32.const 1))))
             (local.set $apm_context (call $hash_byte (local.get $apm_context) (global.get $bit_history_hash)))
             (call $apm_stage_set_index (local.get $i) (local.get $apm_context) (local.get $prob))
 
@@ -1027,7 +1028,7 @@
                         (i32.const 4)
                     )
                 )
-            ;)
+            )
             (br_if $apm_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 3)))
         )
 
@@ -1051,8 +1052,8 @@
         (local $counts_one i32)
         (local $last_bits i32)
         (local $probs_ptr i32)
-(;
-        (; update context models ;)
+
+        ;; update context models
         (local.set $i (i32.const 0))
         (loop $update_context_models_loop
             ;; indirect model
@@ -1210,7 +1211,7 @@
             (call $match_model_update_bit (local.get $i) (local.get $bit))
             (br_if $mm_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
         )
-;)
+
         ;; update model weights
         (local.set $i (i32.const 0))
         (loop $update_model_weights_loop
@@ -1232,6 +1233,7 @@
             (local.get $bit)
             (call $squash (global.get $stage_2_prob))
         )
+
         ;; debug print
         (local.set $i (i32.const 0))
         (loop $debug_print_loop
@@ -1243,7 +1245,7 @@
         ;; update apm stages
         (local.set $i (i32.const 0))
         (loop $apm_loop
-            ;;(call $apm_stage_update (local.get $i) (local.get $bit))
+            (call $apm_stage_update (local.get $i) (local.get $bit))
             (br_if $apm_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 3)))
         )
 
@@ -1257,13 +1259,13 @@
 
         (if (i32.eq (global.get $bit_index) (i32.const 8))
             (then
-                ;;(call $history_update (i32.const 0) (global.get $bit_history))
+                (call $history_update (i32.const 0) (global.get $bit_history))
                 (global.set $bit_history (i32.const 0))
                 (global.set $bit_index (i32.const 0))
 
                 ;; update match models
                 (local.set $i (i32.const 0))
-                (;loop $mm_update_byte_loop
+                (loop $mm_update_byte_loop
                     (call $match_model_update_byte (local.get $i)
                         (i32.sub
                             (i32.shl
@@ -1274,7 +1276,7 @@
                         )
                     )
                     (br_if $mm_update_byte_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
-                ;)
+                )
             )
         )
     )
