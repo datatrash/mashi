@@ -83,11 +83,11 @@
     ;; scratch                   = 0x0f0c000
     ;;
     ;; hash_table                = 0x6000000..0xe000000 (16 bytes per entry)
-    ;;;; offset 0 = checksums
-    ;;;; offset 4 = stationary_counts
-    ;;;; offset 8 = indirect_counts
-    ;;;; offset 12 = run_count
-    ;;;; offset 14 = run_symbol
+    ;;;; offset 0x0 = checksums
+    ;;;; offset 0x4 = stationary_counts
+    ;;;; offset 0x8 = indirect_counts
+    ;;;; offset 0xc = run_count
+    ;;;; offset 0xe = run_symbol
 
     (memory (export "memory") 9536) ;; bomb that tree line about 596mb back
 
@@ -716,20 +716,61 @@
                     )
                 )
             )
-            (call $l_u32 (i32.load16_u offset=0x0f06000 (;stage_1_probs;) (local.get $probs_ptr)))
+            (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
+
+            ;; stationary model
+            (i32.store16 offset=0x0f06000 (;stage_1_probs;)
+                (local.get $probs_ptr)
+                (call $stretch
+                    (i32.shr_u
+                        (i32.and
+                            (i32.load offset=0x6000004 (;ht_stationary_counts;) (i32.shl (local.get $hash) (i32.const 4)))
+                            (i32.const 0x003fffff)
+                        )
+                        (i32.const 10)
+                    )
+                )
+            )
+            (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
+
+            ;; run model
+            (i32.store16 offset=0x0f06000 (;stage_1_probs;)
+                (local.get $probs_ptr)
+                (call $stretch
+                    (i32.and
+                        (i32.mul
+                            (i32.div_s
+                                (i32.const 2048)
+                                (i32.add
+                                    (i32.load16_s offset=0x600000c (;ht_run_count;) (i32.shl (local.get $hash) (i32.const 4)))
+                                    (i32.const 1)
+                                )
+                            )
+                            (i32.add
+                                (i32.mul
+                                    (i32.load16_s offset=0x600000e (;ht_run_symbol;) (i32.shl (local.get $hash) (i32.const 4)))
+                                    (i32.const -2)
+                                )
+                                (i32.const 1)
+                            )
+                        )
+                        (i32.const 0x0fff)
+                    )
+                )
+            )
             (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
 
             (br_if $update_context_models_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (global.get $num_active_context_models)))
         )
 
-        (; const model ;)
+        ;; const model
         (i32.store16 offset=0x0f06000 (;stage_1_probs;)
             (local.get $probs_ptr)
             (i32.const 1024)
         )
         (local.set $probs_ptr (i32.add (local.get $probs_ptr) (i32.const 2)))
 
-        (; update match models ;)
+        ;; update match models
         (local.set $i (i32.const 0))
         (loop $update_match_models_loop
             (i32.store16 offset=0x0f06000 (;stage_1_probs;)
@@ -740,13 +781,16 @@
             (br_if $update_match_models_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
         )
 
+        ;; todo: all stage_1_probs can be stretched in a loop instead of every time we write one, except the const model which we should pre-unstretch so it returns the right value
+        ;; after stretching
+
         (; debug: log all stage_1_probs ;)
-        (local.set $i (i32.const 0))
+        (;local.set $i (i32.const 0))
         (loop $debug_stage_1_probs_loop
             (call $l_i32 (i32.load16_s offset=0x0f06000 (local.get $i)))
             (local.set $i (i32.add (local.get $i) (i32.const 2)))
             (br_if $debug_stage_1_probs_loop (i32.lt_u (local.get $i) (local.get $probs_ptr)))
-        )
+        ;)
 
         (global.set $stage_2_prob (i32.const 0)) ;; hack
         (local.set $prob (global.get $stage_2_prob))
@@ -785,15 +829,176 @@
 
     (func $model_update (export "model_update") (param $bit i32)
         (local $i i32)
+        (local $indirect_prob_index i32)
+        (local $indirect_prob i32)
+        (local $hash i32)
+        (local $count i32)
+        (local $prob i32)
+        (local $counts i32)
+        (local $counts_zero i32)
+        (local $counts_one i32)
+        (local $last_bits i32)
 
-        (; update match models ;)
+        (; update context models ;)
+        (local.set $i (i32.const 0))
+        (loop $update_context_models_loop
+            ;; indirect model
+            ;; update indirect prob
+            (local.set $indirect_prob_index
+                (i32.load offset=0x0f0b000 (;context_model_indirect_prob_indices;) (i32.shl (local.get $i) (i32.const 2)))
+            )
+
+            (local.set $indirect_prob
+                (i32.load16_u
+                    offset=0x1ac00000 (;context_indirect_probs;)
+                    (i32.add
+                        (i32.mul (global.get $dis_model_state) (i32.const 0x540000))
+                        (i32.shl (local.get $indirect_prob_index) (i32.const 1))
+                    )
+                )
+            )
+
+            (local.set $indirect_prob
+                (i32.and
+                    (i32.add
+                        (local.get $indirect_prob)
+                        (i32.shr_u
+                            (i32.sub
+                                (i32.shl (local.get $bit) (i32.const 16))
+                                (local.get $indirect_prob)
+                            )
+                            (i32.const 6)
+                        )
+                    )
+                    (i32.const 0xffff)
+                )
+            )
+
+            (i32.store16
+                offset=0x1ac00000 (;context_indirect_probs;)
+                (i32.add
+                    (i32.mul (global.get $dis_model_state) (i32.const 0x540000))
+                    (i32.shl (local.get $indirect_prob_index) (i32.const 1))
+                )
+                (local.get $indirect_prob)
+            )
+
+            ;; update counts
+            (local.set $hash
+                (i32.load offset=0x0f0a000 (;context_model_hashes;) (i32.shl (local.get $i) (i32.const 2)))
+            )
+
+            (local.set $counts
+                (i32.load offset=0x6000008 (;ht_indirect_counts;) (i32.shl (local.get $hash) (i32.const 4)))
+            )
+
+            ;;(call $l_u32 (local.get $counts))
+            (local.set $counts_zero (i32.and (local.get $counts) (i32.const 0x3f)))
+            (local.set $counts_one (i32.and (i32.shr_u (local.get $counts) (i32.const 6)) (i32.const 0x3f)))
+            (local.set $last_bits (i32.shr_u (local.get $counts) (i32.const 12)))
+
+            (if (local.get $bit)
+                (then
+                    ;; bit >= 0 (condition other way around from model.rs)
+
+                    (if (i32.lt_u (local.get $counts_one) (i32.const 63)) (then
+                        (local.set $counts_one (i32.add (local.get $counts_one) (i32.const 1)))
+                    ))
+                    (if (i32.gt_u (local.get $counts_zero) (i32.const 9)) (then
+                        (local.set $counts_zero (i32.const 9))
+                    ))
+                )
+                (else
+                    (if (i32.lt_u (local.get $counts_zero) (i32.const 63)) (then
+                        (local.set $counts_zero (i32.add (local.get $counts_zero) (i32.const 1)))
+                    ))
+                    (if (i32.gt_u (local.get $counts_one) (i32.const 9)) (then
+                        (local.set $counts_one (i32.const 9))
+                    ))
+                )
+            )
+
+            (i32.store offset=0x6000008 (;ht_indirect_counts;) (i32.shl (local.get $hash) (i32.const 4))
+                (i32.and
+                    (i32.or
+                        (i32.or
+                            (i32.shl (local.get $last_bits) (i32.const 13))
+                            (i32.shl (local.get $bit) (i32.const 12))
+                        )
+                        (i32.or
+                            (i32.shl (local.get $counts_one) (i32.const 6))
+                            (local.get $counts_zero)
+                        )
+                    )
+                    (i32.const 0xffff)
+                )
+            )
+
+            ;; stationary model
+            (local.set $counts
+                (i32.load offset=0x6000004 (;ht_stationary_counts;) (i32.shl (local.get $hash) (i32.const 4)))
+            )
+
+            (local.set $prob (i32.and (local.get $counts) (i32.const 0x003fffff)))
+            (local.set $count (i32.shr_s (local.get $counts) (i32.const 22)))
+
+            (local.set $prob
+                (i32.add
+                    (local.get $prob)
+                    (i32.div_s
+                        (i32.shl
+                            (i32.sub
+                                (i32.shl (local.get $bit) (i32.const 22))
+                                (local.get $prob)
+                            )
+                            (i32.const 9)
+                        )
+                        (i32.add (local.get $count) (i32.const 1024))
+                    )
+                )
+            )
+
+            (if (i32.lt_s (local.get $count) (i32.const 256)) (then
+                (local.set $count (i32.add (local.get $count) (i32.const 1)))
+            ))
+
+            (i32.store offset=0x6000004 (;ht_stationary_counts;) (i32.shl (local.get $hash) (i32.const 4))
+                (i32.or
+                    (i32.shl (local.get $count) (i32.const 22))
+                    (local.get $prob)
+                )
+            )
+
+            ;; run model
+            (local.set $count
+                (i32.load16_s offset=0x600000c (;ht_run_counts;) (i32.shl (local.get $hash) (i32.const 4)))
+            )
+            (if
+                (i32.ne
+                    (local.get $bit)
+                    (i32.load16_u offset=0x600000e (;ht_run_symbol;) (i32.shl (local.get $hash) (i32.const 4)))
+                )
+                (then
+                    (local.set $count (i32.const 0))
+                )
+            )
+            (if (i32.lt_s (local.get $count) (i32.const 1024)) (then
+                (local.set $count (i32.add (local.get $count) (i32.const 1)))
+            ))
+            (i32.store16 offset=0x600000c (;ht_run_counts;) (i32.shl (local.get $hash) (i32.const 4)) (local.get $count))
+            (i32.store16 offset=0x600000e (;ht_run_symbol;) (i32.shl (local.get $hash) (i32.const 4)) (local.get $bit))
+
+            (br_if $update_context_models_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (global.get $num_active_context_models)))
+        )
+
+        ;; update match models
         (local.set $i (i32.const 0))
         (loop $mm_loop
             (call $match_model_update_bit (local.get $i) (local.get $bit))
             (br_if $mm_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 8)))
         )
 
-        (; update apm stages ;)
+        ;; update apm stages
         (local.set $i (i32.const 0))
         (loop $apm_loop
             (call $apm_stage_update (local.get $i) (local.get $bit))
@@ -814,7 +1019,7 @@
                 (global.set $bit_history (i32.const 0))
                 (global.set $bit_index (i32.const 0))
 
-                (; update match models ;)
+                ;; update match models
                 (local.set $i (i32.const 0))
                 (loop $mm_update_byte_loop
                     (call $match_model_update_byte (local.get $i)

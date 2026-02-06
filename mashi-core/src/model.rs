@@ -443,13 +443,12 @@ impl Model {
                     let indirect_prob_index = (i << 16) | (counts as usize);
                     self.context_model_indirect_prob_indices[i] = indirect_prob_index;
                     let prediction = stretch((dis_model_context.indirect_probs[indirect_prob_index] as u32) >> 4, &self.stretch_tab);
-                    print!("{}#@@ ", prediction);
 
                     unsafe {
                         *probs_ptr = prediction as _;
                         probs_ptr = probs_ptr.offset(1);
                     }
-/*
+
                     // Stationary model
                     let counts = entry.stationary_counts;
                     let prob = counts & 0x003fffff;
@@ -469,7 +468,7 @@ impl Model {
                     unsafe {
                         *probs_ptr = prediction as _;
                         probs_ptr = probs_ptr.offset(1);
-                    }*/
+                    }
                 }
 
                 for _ in 0..NUM_CONST_MODELS {
@@ -492,13 +491,13 @@ impl Model {
                 }
 
         // debug: print all stage_1_probs that were calculated
-        let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
+        /*let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
         while probs_print_ptr != probs_ptr {
             unsafe {
                 print!("{:?} @@ ", *probs_print_ptr);
                 probs_print_ptr = probs_print_ptr.offset(1);
             }
-        }
+        }*/
 
         /*
                         for i in 0..4 {
@@ -590,7 +589,6 @@ impl Model {
 
             entry.indirect_counts = ((last_bits << 13) | (bit << 12) | (counts_one << 6) | counts_zero) & 0xffff;
 
-            /*
             // Stationary model
             let counts = entry.stationary_counts as i32;
 
@@ -621,7 +619,6 @@ impl Model {
 
             entry.run_count = count as _;
             entry.run_symbol = bit as _;
-             */
         }
 
         // Update match models
