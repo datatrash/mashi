@@ -485,6 +485,16 @@ impl Model {
                         probs_ptr = probs_ptr.offset(1);
                     }
                 }
+
+        // debug: print all stage_1_probs that were calculated
+        /*let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
+        while probs_print_ptr != probs_ptr {
+            unsafe {
+                print!("{:?} @@ ", *probs_print_ptr);
+                probs_print_ptr = probs_print_ptr.offset(1);
+            }
+        }*/
+        
         /*
                         for i in 0..4 {
                             self.stage_1_weight_contexts[i] = self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1 - i as i32) as usize) as _;
@@ -510,6 +520,7 @@ impl Model {
                         }
                         self.stage_2_prob = mix(&self.stage_2_probs, &dis_model_context.stage_2_weights, 8 / MIX_VECTOR_SIZE);
                 */
+
         self.stage_2_prob = 0;
 
         let mut prob = self.stage_2_prob;
@@ -604,7 +615,7 @@ impl Model {
 
             entry.run_count = count as _;
             entry.run_symbol = bit as _;
-        }
+        }*/
 
         // Update match models
         for i in 0..NUM_MATCH_MODELS {
@@ -612,7 +623,7 @@ impl Model {
         }
 
         // Update model weights
-        let mut probs_ptr: *mut i16 = self.stage_2_probs.as_ptr() as *mut _;
+        /*let mut probs_ptr: *mut i16 = self.stage_2_probs.as_ptr() as *mut _;
         for i in 0..8 {
             let prediction = unsafe {
                 let prediction = *probs_ptr;
@@ -678,11 +689,11 @@ impl Model {
                 fnv::hash_byte(&mut hash, self.dis_model_state as _);
                 fnv::hash_byte(&mut hash, 0x00); // Hash 0 byte to make room for bit history bits
                 self.context_model_byte_hashes[i] = hash;
-            }
+            }*/
 
             for i in 0..NUM_MATCH_MODELS {
                 self.match_models[i].update_byte(&self.histories[0], ((1 << (i + 1)) - 1) as _);
-            }*/
+            }
         }
     }
 }

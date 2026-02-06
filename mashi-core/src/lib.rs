@@ -35,7 +35,8 @@ mod tests {
 
     impl Test {
         fn new() -> Self {
-            let wasm = include_str!("decompress.wat");
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/decompress.wat");
+            let wasm = fs::read_to_string(&path).unwrap();
             let engine = Engine::default();
             let module = Module::new(&engine, wasm.as_bytes()).unwrap();
 
@@ -46,6 +47,9 @@ mod tests {
             });
             linker.func_wrap("host", "log_u32", |caller: Caller<'_, HostState>, param: u32| {
                 println!("       log_u32: {param}");
+            });
+            linker.func_wrap("host", "l_i32", |caller: Caller<'_, HostState>, param: i32| {
+                print!("{param} // ");
             });
             linker.func_wrap("host", "l_u32", |caller: Caller<'_, HostState>, param: u32| {
                 print!("{param} // ");
@@ -267,17 +271,13 @@ mod tests {
         assert_eq!(memory, &model.stretch_tab);
     }
 
-    #[test]
-    fn test_decompress() {
+    fn wasm_roundtrip(src: &[u8]) {
         // Do a Rust compressor --> WASM decompressor roundtrip
         use wasmi::*;
 
-        let dest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/test.wasm.mashi");
-        let src = include_bytes!("../test-data/test.wasm").to_vec();
-        let (c, _) = compress(&src, |_| ());
-        let compressed = fs::read(&dest).unwrap();
+        let (compressed, _) = compress(&src, |_| ());
         let (high_level_decompressed, model) = decompress(&compressed, |_| ());
-        assert_eq!(&high_level_decompressed, &include_bytes!("../test-data/test.wasm").to_vec());
+        assert_eq!(&high_level_decompressed, &src);
 
         let mut test = Test::new();
         {
@@ -285,8 +285,6 @@ mod tests {
             memory[..compressed.len()].copy_from_slice(&compressed);
         }
 
-        println!();
-        println!();
         println!();
         test.instance
             .get_typed_func::<(), ()>(&test.store, "decompress").unwrap()
@@ -300,6 +298,16 @@ mod tests {
             }
         }*/
         assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], high_level_decompressed);
+    }
+
+    #[test]
+    fn test_wasm_tiny_roundtrip() {
+        wasm_roundtrip(include_bytes!("../test-data/add.wasm"));
+    }
+
+    #[test]
+    fn test_wasm_full_roundtrip() {
+        wasm_roundtrip(include_bytes!("../test-data/test.wasm"));
     }
 
     // rerun this is the squash_tab changes
