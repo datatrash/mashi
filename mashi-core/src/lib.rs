@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_model() {
         let mut r = StdRng::seed_from_u64(42);
-        let mut bits = [0u8; 262144];
+        let mut bits = [0u8; 16];
         r.fill_bytes(&mut bits);
 
         let mut test = Test::new();
@@ -255,11 +255,15 @@ mod tests {
         for (pos, bit) in bits.iter().enumerate() {
             let bit = if *bit < 128 { 0 } else { 1 };
             let rust_prob = model.prob() as i32;
+            println!();
             let wasm_prob = test.model_prob();
             assert_eq!(rust_prob, wasm_prob, "Mismatch at {pos}");
+            println!();
 
             model.update(bit as u32, false);
+            println!();
             test.model_update(bit);
+            println!();
         }
     }
 

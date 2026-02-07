@@ -491,13 +491,13 @@ impl Model {
         }
 
         // debug: print all stage_1_probs that were calculated
-        let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
+        /*let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
         while probs_print_ptr != probs_ptr {
             unsafe {
                 print!("{:?} @@ ", *probs_print_ptr);
                 probs_print_ptr = probs_print_ptr.offset(1);
             }
-        }
+        }*/
 
         for i in 0..4 {
             self.stage_1_weight_contexts[i] = self.histories[0].get((self.histories[0].byte_history_pos as i32 - 1 - i as i32) as usize) as _;
@@ -533,12 +533,12 @@ impl Model {
             print!("{:?} @@ ", self.stage_1_weight_contexts[i]);
         }*/
         // debug: print all stage_2_probs that were calculated
-        /*for i in 0..8 {
-            print!("{:?} @@ ", self.stage_2_probs[0].as_array()[i]);
-        }*/
+        for i in 0..8 {
+            //print!("{:?} @@ ", self.stage_2_probs[0].as_array()[i]);
+        }
 
         self.stage_2_prob = mix(&self.stage_2_probs, &dis_model_context.stage_2_weights, 8 / MIX_VECTOR_SIZE);
-        print!("{} // ", self.stage_2_prob);
+        //print!("{} // ", self.stage_2_prob);
 
         //self.stage_2_prob = 0;
 
@@ -744,8 +744,12 @@ fn stretch(p: u32, stretch_tab: &[i32]) -> i32 {
 pub fn mix(probs: &[i16x8], weights: &[i16x8], count: usize) -> i32 {
     unsafe {
         let mut acc = i16x8::splat(0);
+
         // Vertical sums
         for i in 0..count {
+            /*for j in 0..8 {
+                print!("{} $$ ", weights[i].as_array()[j]);
+            }*/
             acc += probs[i].mul_hi(weights[i]);
         }
         // Horizontal sums
@@ -755,6 +759,22 @@ pub fn mix(probs: &[i16x8], weights: &[i16x8], count: usize) -> i32 {
         acc[0] as i32
     }
 }
+
+/*pub fn mix2(probs: &[i16x8], weights: &[i16x8], count: usize) -> i32 {
+    unsafe {
+        let weight = i16x8::splat(1234);
+        let mut acc = i16x8::splat(0);
+        // Vertical sums
+        for i in 0..count {
+            acc += probs[i].mul_hi(weight);//weights[i]);
+        }
+        // Horizontal sums
+        acc = horizontal_pair_add(acc, acc);
+        acc = horizontal_pair_add(acc, acc);
+        acc = horizontal_pair_add(acc, acc);
+        acc[0] as i32
+    }
+}*/
 
 pub fn train(probs: &[i16x8], weights: &mut [i16x8], count: usize, bit: i32, current_prob: i32) {
     let prediction_error = ((bit << 12) - current_prob) * 7;
@@ -778,6 +798,7 @@ pub fn train(probs: &[i16x8], weights: &mut [i16x8], count: usize, bit: i32, cur
         }
     }
 }
+
 
 trait SimdMulHi {
     fn mul_hi(self, other: Self) -> Self;
