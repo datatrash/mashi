@@ -63,13 +63,14 @@ where
     let input_len = input.len();
     let mut byte_index = 0;
     while byte_index < input_len {
-        let is_in_code_section = false;//(byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
+        let is_in_code_section = (byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
 
         // Each BLOCK_SIZE, we check if the next BLOCK_SIZE bytes are all 0x00 or not.
         //  If they are, we output a 0 marker bit, and nothing else.
         //  Otherwise, we output a 1 marker bit, and compress normally.
         //  This helps us skip over large portions of useless data common between sections and in (un)inialized data
         //  (some executables contain several megabytes' worth of such blocks!)
+        // todo sag: check if we still need this for WASM
         if (byte_index & BLOCK_MASK) == 0 {
             let mut is_block_empty = input_len - byte_index >= BLOCK_SIZE;
 
@@ -235,9 +236,12 @@ where
 
         let mut byte: u8 = 0;
 
-        let is_in_code_section = false;//(byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
+        let is_in_code_section = (byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
         for _ in 0..8 {
+            log::info!("=============================================================================");
             let bit = range_decode_bit(&mut state, model.prob());
+            log::info!("{bit}");
+            log::info!("=============================================================================");
 
             model.update(bit, is_in_code_section);
 

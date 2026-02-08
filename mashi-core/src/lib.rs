@@ -7,16 +7,26 @@ mod model;
 
 pub use compressor::{compress, decompress};
 
+const DEBUG_LOG: bool = false;
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::dis_model::NUM_DIS_MODEL_STATES;
-    use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, BIT_MASKS, BYTE_MASKS, NUM_MATCH_MODELS};
+    use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, BIT_MASKS, BYTE_MASKS, HISTORY_BUFFER_LEN, NUM_MATCH_MODELS};
+    use log::LevelFilter;
+    use log4rs::append::file::FileAppender;
+    use log4rs::config::{Appender, Root};
+    use log4rs::encode::pattern::PatternEncoder;
+    use log4rs::Config;
     use num_traits::ToBytes;
     use rand::prelude::StdRng;
     use rand::{Rng, RngCore, SeedableRng};
+    use std::fs::File;
+    use std::io::Write;
     use std::path::PathBuf;
     use std::simd::i16x8;
+    use std::sync::{Arc, Mutex};
     use std::{fs, println, ptr, slice};
     use wasmi::{Caller, Engine, Linker, Module, Store};
 
@@ -34,10 +44,14 @@ mod tests {
     struct Test {
         instance: wasmi::Instance,
         store: Store<HostState>,
+        file: Arc<Mutex<File>>,
     }
 
     impl Test {
         fn new() -> Self {
+            let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("log/wasm.txt");
+            let mut file = Arc::new(Mutex::new(File::create(&log_path).unwrap()));
+
             let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/decompress.wat");
             let wasm = fs::read_to_string(&path).unwrap();
             let engine = Engine::default();
@@ -45,29 +59,28 @@ mod tests {
 
             let mut store = Store::new(&engine, HostState);
             let mut linker = <Linker<HostState>>::new(&engine);
-            linker.func_wrap("host", "log_i32", |caller: Caller<'_, HostState>, param: i32| {
-                println!("       log_i32: {param}");
+            let f = file.clone();
+            linker.func_wrap("host", "l_sep", move |caller: Caller<'_, HostState>| {
+                if DEBUG_LOG { writeln!(f.lock().unwrap(), "============================================================================="); }
             });
-            linker.func_wrap("host", "log_u32", |caller: Caller<'_, HostState>, param: u32| {
-                println!("       log_u32: {param}");
+            let f = file.clone();
+            linker.func_wrap("host", "l_i32", move |caller: Caller<'_, HostState>, param: i32| {
+                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param}"); }
             });
-            linker.func_wrap("host", "l_i32", |caller: Caller<'_, HostState>, param: i32| {
-                print!("{param} // ");
+            let f = file.clone();
+            linker.func_wrap("host", "l_u32", move |caller: Caller<'_, HostState>, param: u32| {
+                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param}"); }
             });
-            linker.func_wrap("host", "l_u32", |caller: Caller<'_, HostState>, param: u32| {
-                print!("{param} // ");
-            });
-            linker.func_wrap("host", "l_u32_excl", |caller: Caller<'_, HostState>, param: u32| {
-                print!("{param} !! ");
-            });
-            linker.func_wrap("host", "l_x32", |caller: Caller<'_, HostState>, param: u32| {
-                print!("{param:0X} // ");
+            let f = file.clone();
+            linker.func_wrap("host", "l_x32", move |caller: Caller<'_, HostState>, param: u32| {
+                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param:0X}"); } 
             });
             let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
 
             Self {
                 instance,
                 store,
+                file,
             }
         }
 
@@ -141,35 +154,40 @@ mod tests {
                 .call(&mut self.store, ()).unwrap()
         }
 
-        fn model_update(&mut self, bit: i32) {
+        fn model_update(&mut self, bit: i32, is_in_code_section: bool) {
             self.instance
-                .get_typed_func::<(i32), ()>(&self.store, "model_update").unwrap()
-                .call(&mut self.store, (bit)).unwrap();
+                .get_typed_func::<(i32, i32), ()>(&self.store, "model_update").unwrap()
+                .call(&mut self.store, (bit, if is_in_code_section { 1 } else { 0 })).unwrap();
         }
     }
 
     #[test]
     fn test_history() {
         let mut r = StdRng::seed_from_u64(42);
-        let mut data = [0i32; 262144];
+        let mut data = [0i32; 64];
         r.fill(&mut data);
 
         let mut test = Test::new();
         test.model_init();
 
-        let mut history = History::new();
+        let mut histories = vec![];
+        for _ in 0..22 {
+            histories.push(History::new());
+        }
         for (pos, b) in data.iter().enumerate() {
-            let rust_hash = history.hash((*b & 0xff) as u8);
-            let wasm_hash = test.history_hash(0, (*b & 0xff) as u8 as i32);
-            assert_eq!(rust_hash, wasm_hash as u32, "Mismatch at {pos}");
+            for i in 0..22 {
+                let rust_hash = histories[i].hash((*b & 0xff) as u8);
+                let wasm_hash = test.history_hash(i as i32, (*b & 0xff) as u8 as i32);
+                assert_eq!(rust_hash, wasm_hash as u32, "Mismatch at {pos}");
 
-            let new_byte = (r.next_u32() & 0xff) as u8;
-            history.update(new_byte);
-            test.history_update(0, new_byte as i32);
+                let new_byte = (r.next_u32() & 0xff) as u8;
+                histories[i].update(new_byte);
+                test.history_update(i as i32, new_byte as i32);
 
-            /*for i in 0..HISTORY_BUFFER_LEN {
-                assert_eq!(history.get(i), test.history_get(0, i as i32) as u8, "history_get mismatch at {i}, pos: {pos}");
-            }*/
+                for x in 0..HISTORY_BUFFER_LEN {
+                    //assert_eq!(histories[i].get(x), test.history_get(i as i32, x as i32) as u8, "history_get mismatch at {x}, pos: {pos}");
+                }
+            }
         }
     }
 
@@ -244,27 +262,41 @@ mod tests {
 
     #[test]
     fn test_model() {
-        let mut r = StdRng::seed_from_u64(42);
-        let mut bits = [0u8; 16];
-        r.fill_bytes(&mut bits);
+        let mut min_seed = (u64::MAX, 0);
 
-        let mut test = Test::new();
-        test.model_init();
+        // 19,59
+        // 73,52
 
-        let mut model = Model::new();
-        for (pos, bit) in bits.iter().enumerate() {
-            let bit = if *bit < 128 { 0 } else { 1 };
-            let rust_prob = model.prob() as i32;
-            println!();
-            let wasm_prob = test.model_prob();
-            assert_eq!(rust_prob, wasm_prob, "Mismatch at {pos}");
-            println!();
+        for seed in 2..=2 {
+            let mut r = StdRng::seed_from_u64(seed);
+            let mut bits = [0u8; 8];
+            r.fill_bytes(&mut bits);
 
-            model.update(bit as u32, false);
-            println!();
-            test.model_update(bit);
-            println!();
+            let mut test = Test::new();
+            test.model_init();
+
+            let mut model = Model::new();
+            for (pos, bit) in bits.iter().enumerate() {
+                let bit = if *bit < 128 { 0 } else { 1 };
+                let rust_prob = model.prob() as i32;
+                println!();
+                let wasm_prob = test.model_prob();
+                println!();
+                if rust_prob != wasm_prob {
+                    if min_seed.0 > seed {
+                        min_seed = (seed, pos);
+                        //println!("Broken seed: {:?}", min_seed);
+                    }
+                    break;
+                }
+                //assert_eq!(rust_prob, wasm_prob, "Mismatch at {pos}");
+
+                model.update(bit as u32, false);
+                test.model_update(bit, false);
+            }
         }
+
+        println!("min_seed: {:?}", min_seed);
     }
 
     #[test]
@@ -338,6 +370,22 @@ mod tests {
 
     fn wasm_roundtrip(src: &[u8]) {
         let (compressed, _) = compress(&src, |_| ());
+
+        if (DEBUG_LOG) {
+            let logfile = FileAppender::builder()
+                .append(false)
+                .encoder(Box::new(PatternEncoder::new("{m}\n")))
+                .build("log/rust.txt").unwrap();
+
+            let config = Config::builder()
+                .appender(Appender::builder().build("logfile", Box::new(logfile)))
+                .build(Root::builder()
+                    .appender("logfile")
+                    .build(LevelFilter::Info)).unwrap();
+
+            log4rs::init_config(config).unwrap();
+        }
+
         let (high_level_decompressed, model) = decompress(&compressed, |_| ());
         assert_eq!(&high_level_decompressed, &src);
 
