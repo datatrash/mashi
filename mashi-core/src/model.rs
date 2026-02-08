@@ -720,7 +720,7 @@ impl Model {
             self.bit_history = 0;
             self.bit_index = 0;
 
-            //self.dis_model_state = if is_in_code_section { 1 + (self.dis_model.val()) } else { 0 };
+            self.dis_model_state = if is_in_code_section { 1 /*+ (self.dis_model.val())*/ } else { 0 };
             self.num_active_context_models = if is_in_code_section {
                 NUM_MAX_ACTIVE_CONTEXT_MODELS
             } else {
@@ -733,7 +733,11 @@ impl Model {
             };
 
             // update active context models
+            log::info!("{}", 12345678);
+            log::info!("{}", self.num_active_context_models);
             for i in 0..self.num_active_context_models {
+                log::info!("{}", i);
+                log::info!("{}", BYTE_MASKS[i % NUM_BASE_CONTEXT_MODELS]);
                 let history_index = if i < NUM_MIN_ACTIVE_CONTEXT_MODELS { 0 } else { self.dis_model_state };
                 let mut hash = self.histories[history_index as usize].hash(BYTE_MASKS[i % NUM_BASE_CONTEXT_MODELS]);
                 log::info!("{}", history_index);

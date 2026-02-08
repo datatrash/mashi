@@ -7,7 +7,7 @@ mod model;
 
 pub use compressor::{compress, decompress};
 
-const DEBUG_LOG: bool = false;
+const DEBUG_LOG: bool = true;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
@@ -73,7 +73,7 @@ mod tests {
             });
             let f = file.clone();
             linker.func_wrap("host", "l_x32", move |caller: Caller<'_, HostState>, param: u32| {
-                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param:0X}"); } 
+                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param:0X}"); }
             });
             let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
 

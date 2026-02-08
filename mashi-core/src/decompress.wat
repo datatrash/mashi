@@ -56,7 +56,7 @@
     ;;;; apm_indices = 0x0f02000
     ;;;; apm_weights = 0x0f03000
     ;;;; apm_tabs = 0xe000000..0x1ac00000 (32 dismodels, 3 tabs, length per tab = 0x110000 * u16 = 0x220000)
-    ;;;; stage_1_weights = 0x25400000..0x26500000 (32 dismodels, 34816 weights per model * i16x8 (= 16) = 0x88000 per dismodel = 1100000
+    ;;;; stage_1_weights = 0x25400000..0x26900000 (32 dismodels, 35328 weights per model * i16x8 (= 16) = 0x8a000 per dismodel = 1140000
     ;;;; stage_2_weights = 0x0f0d000..0x0f0d200 (32 dismodels, 16 bytes per weight)
     ;;;; byte_history = 0x3000000..0x5000000 (length per history = 0x100000, bytes are interleaved so byte 0 = dismodelcontext 0, 1 = dismodelcontext 1, 32 = second byte for dismodelcontext 0, etc)
     ;;;; context_indirect_probs = 0x1ac00000..0x25400000 (length per vec = 0x2a0000 * u16 = 0x540000, 32 different indirect_probs tables)
@@ -707,7 +707,7 @@
             (i32.add
                 (i32.mul
                     (global.get $dis_model_state)
-                    (i32.const 0x88000)
+                    (i32.const 0x8a000)
                 )
                 (i32.shl
                     (i32.mul
@@ -1297,6 +1297,9 @@
                 (global.set $bit_history (i32.const 0))
                 (global.set $bit_index (i32.const 0))
 
+                (global.set $dis_model_state
+                    (select (i32.const 1) (i32.const 0) (local.get $is_in_code_section))
+                )
                 (global.set $num_active_context_models
                     (select (i32.const 42) (i32.const 21) (local.get $is_in_code_section))
                 )
@@ -1305,13 +1308,17 @@
                 )
 
                 ;; update active context models
+                (call $l_u32 (i32.const 12345678))
+                (call $l_u32 (global.get $num_active_context_models))
                 (local.set $i (i32.const 0))
                 (loop $update_active_context_models_loop
+                    (call $l_u32 (local.get $i))
+                    (call $l_u32 (i32.load8_u offset=0x00c1000 (;byte_masks;) (i32.rem_u (local.get $i) (i32.const 21))))
                     (local.set $history_index
                         (select (i32.const 0) (global.get $dis_model_state) (i32.lt_u (local.get $i) (i32.const 21)))
                     )
                     (local.set $hash
-                        (call $history_hash (i32.const 0) (i32.load8_u offset=0x00c1000 (;byte_masks;) (i32.rem_u (local.get $i) (i32.const 21))))
+                        (call $history_hash (local.get $history_index) (i32.load8_u offset=0x00c1000 (;byte_masks;) (i32.rem_u (local.get $i) (i32.const 21))))
                     )
                     (call $l_u32 (local.get $history_index))
                     (call $l_u32 (local.get $hash))
