@@ -9,9 +9,9 @@ pub use compressor::{compress, decompress};
 
 use std::fs::File;
 use std::io::Write;
-use std::mem;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::{fs, mem};
 use wasmi::*;
 
 const DEBUG_LOG: bool = true;
@@ -42,7 +42,13 @@ struct WasmDecompressor {
 #[allow(unused)]
 impl WasmDecompressor {
     fn new() -> Self {
-        let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("log/wasm.txt");
+        let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("log");
+        if DEBUG_LOG {
+            if !fs::exists(&log_path).unwrap() {
+                fs::create_dir(&log_path).unwrap();
+            }
+        }
+        let log_path = log_path.join("wasm.txt");
         let file = Arc::new(Mutex::new(File::create(&log_path).unwrap()));
 
         let engine = Engine::default();
