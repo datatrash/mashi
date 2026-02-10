@@ -112,7 +112,7 @@ where
             bits += -((if bit != 0 { prob } else { 4096 - prob } as f64) / 4096.0).log2();
             range_encode_bit(&mut state, prob, bit);
 
-            model.update(bit, is_in_code_section, false);
+            model.update(bit, is_in_code_section);
         }
 
         state.bits_per_byte.push(bits as _);
@@ -243,7 +243,7 @@ where
             log::trace!("{bit}");
             log::trace!("=============================================================================");
 
-            model.update(bit, is_in_code_section, true);
+            model.update(bit, is_in_code_section);
 
             byte = (byte << 1) | (bit as u8);
         }

@@ -1,97 +1,91 @@
 use core::fmt::{Display, Formatter};
 use std::collections::VecDeque;
+use std::mem;
 
-pub const NUM_DIS_MODEL_STATES: usize = core::mem::variant_count::<DisModelState>();
+pub const NUM_DIS_MODEL_STATES: usize = mem::variant_count::<DisModelState>();
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Default)]
 pub enum DisModelState {
     #[default]
-    Opcode,
-    PrefixedOpcode,
-    Leb,
-    FuncLength,
-    LocalTypeCount,
-    LocalCount,
-    LocalType,
-    ConstI32,
-    ConstI64,
-    ConstF32,
-    ConstF64,
-    DataIdx,
-    MemIdx,
-    LocalIdx,
-    GlobalIdx,
-    MemArgAlign,
-    MemArgX,
-    MemArgOffset,
-    FuncIdx,
-    BlockType,
-    BrTable,
-    LabelIdx,
-    LaneIdx,
-    VectorByte,
-    MiscLeb, // LEBs that we don't want to specifically group
+    Opcode = 0,
+    PrefixedOpcode = 1,
+    Leb = 2,
+    FuncLength = 3,
+    LocalTypeCount = 4,
+    LocalCount = 5,
+    LocalType = 6,
+    ConstI32 = 7,
+    ConstI64 = 8,
+    ConstF32 = 9,
+    ConstF64 = 10,
+    DataIdx = 11,
+    MemIdx = 12,
+    LocalIdx = 13,
+    GlobalIdx = 14,
+    MemArgAlign = 15,
+    MemArgX = 16,
+    MemArgOffset = 17,
+    FuncIdx = 18,
+    BlockType = 19,
+    BrTable = 20,
+    LabelIdx = 21,
+    LaneIdx = 22,
+    VectorByte = 23,
+    MiscLeb = 24, // LEBs that we don't want to specifically group
 }
 
-#[derive(Clone, Debug, Default)]
-struct Leb {
-    val: u64,
-    shift: u64,
-    complete: bool,
-}
-
-impl Leb {
-    /// Returns 'true' if the value has been completed
-    pub fn update(&mut self, byte: u8) -> bool {
-        self.val += ((byte & 0x7f) as u64) << self.shift;
-        self.shift += 7;
-        self.complete = byte & 0x80 != 0x80;
-        self.complete
-    }
-}
-
-impl Display for Leb {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.val)
-    }
-}
+pub const QUEUE_LEN: usize = 0x4000;
 
 pub struct DisModel {
     depth: u8,
-    queue: VecDeque<DisModelState>,
-    cur_leb: Leb,
-    cur_float_bytes_left: usize,
+    queue: [DisModelState; QUEUE_LEN],
+    read_pos: usize,
+    write_pos: usize,
+    leb_val: u64,
+    leb_shift: u64,
+    float_bytes_left: usize,
     opcode: u8,
 }
 
 impl DisModel {
     pub fn new() -> Self {
-        let mut state = Self {
+        let mut model = Self {
             depth: 0,
-            queue: VecDeque::from([
-                // the total count of functions in this module
-                DisModelState::Leb,
-
-                // the header of the first function
-                DisModelState::FuncLength,
-                DisModelState::LocalTypeCount
-            ]),
-            cur_leb: Leb::default(),
-            cur_float_bytes_left: 0,
+            queue: unsafe { mem::zeroed() },
+            read_pos: 0,
+            write_pos: 3,
+            leb_val: 0,
+            leb_shift: 0,
+            float_bytes_left: 0,
             opcode: 0,
         };
-        state
+
+        // the total count of functions in this module
+        model.queue[0] = DisModelState::Leb;
+
+        // the header of the first function
+        model.queue[1] = DisModelState::FuncLength;
+        model.queue[2] = DisModelState::LocalTypeCount;
+
+        model
     }
 
     pub fn val(&self) -> u32 {
-        self.queue.front().unwrap_or(&DisModelState::default()).clone() as u32
+        self.queue[self.read_pos] as u32
+    }
+
+    fn write(&mut self, state: DisModelState) {
+        self.queue[self.write_pos] = state;
+        self.write_pos += 1;
+        self.write_pos %= QUEUE_LEN;
     }
 
     pub fn update(&mut self, byte: u8) {
-        let state = self.queue.pop_front().unwrap_or(DisModelState::default());
+        let state = self.queue[self.read_pos];
+        let mut should_remain = false;
 
-        log::info!("{:?} | self.opcode: {:0X} | incoming byte: {:0X}", state, self.opcode, byte);
+        log::info!("{:?} | self.opcode: {:0X} | incoming byte: {:0X} (r: {}, w: {})", state, self.opcode, byte, self.read_pos, self.write_pos);
 
         // Instruction handling is based on:
         // https://webassembly.github.io/spec/core/appendix/index-instructions.html
@@ -107,7 +101,7 @@ impl DisModel {
                     // block/loop/if
                     0x2 | 0x3 | 0x4 => {
                         self.depth += 1;
-                        self.queue.push_back(DisModelState::BlockType);
+                        self.write(DisModelState::BlockType);
                     }
 
                     // end of block
@@ -116,84 +110,99 @@ impl DisModel {
                             self.depth -= 1;
                         } else {
                             // end of function, so prepare for the next one
-                            self.queue.extend([DisModelState::FuncLength, DisModelState::LocalTypeCount]);
+                            self.write(DisModelState::FuncLength);
+                            self.write(DisModelState::LocalTypeCount);
                         }
                     }
 
                     0xc | 0xd | 0xd5 | 0xd6 => {
-                        self.queue.push_back(DisModelState::LabelIdx);
+                        self.write(DisModelState::LabelIdx);
                     }
 
                     0xe => {
-                        self.queue.push_back(DisModelState::BrTable);
+                        self.write(DisModelState::BrTable);
                     }
 
                     0x10 => {
-                        self.queue.push_back(DisModelState::FuncIdx);
+                        self.write(DisModelState::FuncIdx);
                     }
                     0x11 => {
-                        self.queue.extend([const { DisModelState::MiscLeb }; 2]);
+                        self.write(DisModelState::MiscLeb);
+                        self.write(DisModelState::MiscLeb);
                     }
 
                     0x20 | 0x21 | 0x22 => {
-                        self.queue.push_back(DisModelState::LocalIdx);
+                        self.write(DisModelState::LocalIdx);
                     }
                     0x23 | 0x24 => {
-                        self.queue.push_back(DisModelState::GlobalIdx);
+                        self.write(DisModelState::GlobalIdx);
                     }
                     0x28..=0x3e => {
-                        self.queue.push_back(DisModelState::MemArgAlign);
+                        self.write(DisModelState::MemArgAlign);
                     }
                     0x3f..=0x40 => {
-                        self.queue.push_back(DisModelState::MemIdx);
+                        self.write(DisModelState::MemIdx);
                     }
 
-                    0x41 => self.queue.push_back(DisModelState::ConstI32),
-                    0x42 => self.queue.push_back(DisModelState::ConstI64),
+                    0x41 => self.write(DisModelState::ConstI32),
+                    0x42 => self.write(DisModelState::ConstI64),
                     0x43 => {
-                        self.queue.push_back(DisModelState::ConstF32);
-                        self.cur_float_bytes_left = 4;
+                        self.write(DisModelState::ConstF32);
+                        self.float_bytes_left = 4;
                     }
                     0x44 => {
-                        self.queue.push_back(DisModelState::ConstF64);
-                        self.cur_float_bytes_left = 8;
+                        self.write(DisModelState::ConstF64);
+                        self.float_bytes_left = 8;
                     }
 
-                    0xd0 => self.queue.push_back(DisModelState::MiscLeb),
-                    0xd2 | 0xd5 | 0xd6 => self.queue.push_back(DisModelState::FuncIdx),
+                    0xd0 => self.write(DisModelState::MiscLeb),
+                    0xd2 => self.write(DisModelState::FuncIdx), // 0xd5 and 0xd6 should maybe be FuncIdx too?
 
                     0xfc | 0xfd | 0xfe => {
-                        self.queue.push_back(DisModelState::PrefixedOpcode);
+                        self.write(DisModelState::PrefixedOpcode);
                     }
 
                     // This opcode doesn't need any special handling
-                    _ => ()
+                    _ => (),
                 }
             }
             DisModelState::PrefixedOpcode => {
-                if let Some(opcode) = self.update_leb(state, byte) {
+                if let Some(opcode) = self.update_leb(byte) {
                     match self.opcode /* prefix */ {
                         0xfc => {
                             match opcode {
-                                0x8 | 0xa => self.queue.extend([DisModelState::DataIdx, DisModelState::MemIdx]),
-                                0x9 | 0xb | 0xd | 0x12 | 0xf..=0x11 => self.queue.push_back(DisModelState::MemIdx),
-                                0xc | 0xe => self.queue.extend([const { DisModelState::MiscLeb }; 2]),
-                                _ => ()
+                                0x8 | 0xa => {
+                                    self.write(DisModelState::DataIdx);
+                                    self.write(DisModelState::MemIdx);
+                                }
+                                0x9 | 0xb | 0xd | 0xf..=0x12 => self.write(DisModelState::MemIdx),
+                                0xc | 0xe => {
+                                    self.write(DisModelState::MiscLeb);
+                                    self.write(DisModelState::MiscLeb);
+                                }
+                                _ => (),
                             }
                         }
                         0xfd => {
                             match opcode {
-                                0..=11 | 92 | 93 => self.queue.extend([DisModelState::MemArgAlign]),
-                                12 | 13 => self.queue.extend([const { DisModelState::VectorByte }; 16]),
-                                21..=34 | 84..=91 => self.queue.extend([DisModelState::MemArgAlign, DisModelState::LaneIdx]),
-                                _ => ()
+                                0..=11 | 92 | 93 => self.write(DisModelState::MemArgAlign),
+                                12 | 13 => {
+                                    for _ in 0..16 {
+                                        self.write(DisModelState::VectorByte);
+                                    }
+                                }
+                                21..=34 | 84..=91 => {
+                                    self.write(DisModelState::MemArgAlign);
+                                    self.write(DisModelState::LaneIdx);
+                                }
+                                _ => (),
                             }
                         }
                         0xfe => {
                             match opcode {
-                                0x3 => self.queue.push_back(DisModelState::VectorByte), // fence parameter, should probably go elsewhere but meh
-                                0x0..=0x2 | 0x10..=0x4e => self.queue.extend([DisModelState::MemArgAlign]),
-                                _ => ()
+                                0x3 => self.write(DisModelState::VectorByte), // fence parameter, should probably go elsewhere but meh
+                                0x0..=0x2 | 0x10..=0x4e => self.write(DisModelState::MemArgAlign),
+                                _ => (),
                             }
                         }
                         _ => unimplemented!("Unsupported opcode prefix: {:0X}", byte)
@@ -201,57 +210,75 @@ impl DisModel {
                 }
             }
             DisModelState::LocalTypeCount => {
-                if let Some(num_local_types) = self.update_leb(state, byte) {
+                if let Some(num_local_types) = self.update_leb(byte) {
                     for _ in 0..num_local_types {
-                        self.queue.extend([DisModelState::LocalCount, DisModelState::LocalType]);
+                        self.write(DisModelState::LocalCount);
+                        self.write(DisModelState::LocalType);
                     }
-                    self.queue.push_back(DisModelState::Opcode);
                 }
             }
             DisModelState::LocalType | DisModelState::VectorByte => {
                 // just ignore this byte
             }
             DisModelState::MemArgAlign => {
-                if let Some(offset) = self.update_leb(state, byte) {
-                    self.queue.push_front(DisModelState::MemArgOffset);
+                if let Some(offset) = self.update_leb(byte) {
                     if offset >= 64 {
-                        self.queue.push_front(DisModelState::MemArgX);
+                        self.write(DisModelState::MemArgX);
                     }
+                    self.write(DisModelState::MemArgOffset);
                 }
             }
             DisModelState::BrTable => {
-                if let Some(item_count) = self.update_leb(state, byte) {
+                if let Some(item_count) = self.update_leb(byte) {
                     // br_tables always contain one more element
                     for i in 0..item_count {
-                        self.queue.push_back(DisModelState::LabelIdx);
+                        self.write(DisModelState::LabelIdx);
                     }
-                    self.queue.push_back(DisModelState::LabelIdx);
+                    self.write(DisModelState::LabelIdx);
                 }
             }
             DisModelState::ConstF32 | DisModelState::ConstF64 => {
                 // Floats are stored as IEEE floats, so just ignore the bytes
-                self.cur_float_bytes_left -= 1;
-                if self.cur_float_bytes_left > 0 {
+                self.float_bytes_left -= 1;
+                if self.float_bytes_left > 0 {
                     // not yet done, remain in this state
-                    self.queue.push_front(state);
+                    should_remain = true;
                 }
             }
             _ => {
                 // In all other cases we're consuming some form of LEB
-                let _ = self.update_leb(state, byte);
+                if self.update_leb(byte).is_none() {
+                    should_remain = true;
+                }
+            }
+        }
+
+        // Should we remain in the current state or move on to the next one in the queue?
+        if !should_remain {
+            self.read_pos += 1;
+            self.read_pos %= QUEUE_LEN;
+
+            // We've processed everything in the queue, so let's clear the queue and fall back to reading another opcode
+            if self.read_pos == self.write_pos {
+                self.read_pos = 0;
+                self.write_pos = 1;
+                self.queue[0] = DisModelState::Opcode;
             }
         }
     }
 
-    fn update_leb(&mut self, state: DisModelState, byte: u8) -> Option<u64> {
-        if self.cur_leb.update(byte) {
+    fn update_leb(&mut self, byte: u8) -> Option<u64> {
+        self.leb_val += ((byte & 0x7f) as u64) << self.leb_shift;
+        self.leb_shift += 7;
+
+        if byte & 0x80 != 0x80 {
             // done! move to the next state on the next byte
-            let val = self.cur_leb.val;
-            self.cur_leb = Leb::default();
+            let val = self.leb_val;
+            self.leb_val = 0;
+            self.leb_shift = 0;
             Some(val)
         } else {
             // not yet done, remain in this state
-            self.queue.push_front(state);
             None
         }
     }

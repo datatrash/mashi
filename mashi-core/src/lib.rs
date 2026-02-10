@@ -3,7 +3,6 @@
 
 mod compressor;
 mod dis_model;
-mod dis_model2;
 mod model;
 
 pub use compressor::{compress, decompress};
@@ -13,7 +12,7 @@ const DEBUG_LOG: bool = false;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::dis_model::NUM_DIS_MODEL_STATES;
+    use crate::dis_model::{DisModelState, NUM_DIS_MODEL_STATES};
     use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, BIT_MASKS, BYTE_MASKS, HISTORY_BUFFER_LEN, NUM_MATCH_MODELS};
     use log::LevelFilter;
     use log4rs::append::file::FileAppender;
@@ -28,7 +27,7 @@ mod tests {
     use std::path::PathBuf;
     use std::simd::i16x8;
     use std::sync::{Arc, Mutex};
-    use std::{fs, println, ptr, slice};
+    use std::{fs, mem, println, ptr, slice};
     use wasmi::{Caller, Engine, Linker, Module, Store};
 
     fn init_log() {
@@ -94,6 +93,11 @@ mod tests {
             let f = file.clone();
             linker.func_wrap("host", "l_x32", move |caller: Caller<'_, HostState>, param: u32| {
                 if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param:0X}"); }
+            });
+            let f = file.clone();
+            linker.func_wrap("host", "l_dm", move |caller: Caller<'_, HostState>, state: u32, opcode: i32, byte: i32, read_pos: u32, write_pos: u32| {
+                let s: DisModelState = unsafe { mem::transmute(state as u8) };
+                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{:?} | self.opcode: {:0X} | incoming byte: {:0X} (r: {}, w: {})", s, opcode, byte, read_pos, write_pos); }
             });
             let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
 
@@ -311,7 +315,7 @@ mod tests {
                 }
                 //assert_eq!(rust_prob, wasm_prob, "Mismatch at {pos}");
 
-                model.update(bit as u32, false, true);
+                model.update(bit as u32, false);
                 test.model_update(bit, false);
             }
         }

@@ -1,5 +1,6 @@
 (module
     (import "host" "l_i32" (func $l_i32 (param i32)))
+    (import "host" "l_dm" (func $l_dm (param i32) (param i32) (param i32) (param i32) (param i32)))
     (import "host" "l_u32" (func $l_u32 (param i32)))
     (import "host" "l_x32" (func $l_x32 (param i32)))
     (import "host" "l_sep" (func $l_sep))
@@ -15,7 +16,6 @@
     (global $rd_range (mut i32) (i32.const -1))
 
     ;; model state
-    ;;dis_model
     (global $dis_model_state (mut i32) (i32.const 0))
     (global $stage_2_prob (mut i32) (i32.const 0))
     (global $bit_history (mut i32) (i32.const 0))
@@ -52,7 +52,7 @@
     )
     ;; byte_history_pos = 0x00f1000
     ;; depack to 0x1000000..0x3000000, so maybe shift everything when we need less memory, meh
-    ;; for every dis_model (max 32 of them for now, increase this if we have more than DisModelStates + 1):
+    ;; for every different dis_model_state (max 32 of them for now, increase this if we have more than DisModelStates + 1):
     ;;;; apm_indices = 0x0f02000
     ;;;; apm_weights = 0x0f03000
     ;;;; apm_tabs = 0xe000000..0x1ac00000 (32 dismodels, 3 tabs, length per tab = 0x110000 * u16 = 0x220000)
@@ -85,6 +85,19 @@
     ;;;; offset 0x8 = indirect_counts
     ;;;; offset 0xc = run_count
     ;;;; offset 0xe = run_symbol
+    ;;
+    ;; dis_model_queue           = 0x0f20000..0x0f24000
+    (global $dm_depth (mut i32) (i32.const 0))
+    (global $dm_read_pos (mut i32) (i32.const 0))
+    (global $dm_write_pos (mut i32) (i32.const 3)) ;; change this if the initial bytes loaded in the below table before an opcode change
+    (data (i32.const 0x0f20000)
+        "\02\03\04"
+    )
+    (global $dm_temp_leb_val (mut i64) (i64.const 0))
+    (global $dm_leb_val (mut i64) (i64.const 0))
+    (global $dm_leb_shift (mut i32) (i32.const 0))
+    (global $dm_float_bytes_left (mut i32) (i32.const 0))
+    (global $dm_opcode (mut i32) (i32.const 0))
 
     (memory (export "memory") 9808) ;; bomb that tree line about 613mb back
 
@@ -125,9 +138,6 @@
                 (br $rd_adjust_loop)
             )
         )
-
-        ;;(call $l_u32 (local.get $bit))
-        ;;(call $l_u32 (local.get $prob))
 
         (local.get $bit)
     )
@@ -203,10 +213,6 @@
         (loop $acc_loop
             (local.set $acc
                 (local.set $tmp (i32.const 0))
-                (;loop $debug_loop
-                    (call $l_i32 (i32.load16_s (i32.add (local.get $probs_ptr) (i32.shl (local.get $tmp) (i32.const 1)))))
-                    (br_if $debug_loop (i32.lt_u (local.tee $tmp (i32.add (local.get $tmp) (i32.const 1))) (i32.const 8)))
-                ;)
                 (i16x8.add
                     (local.get $acc)
                     (call $mul_hi (v128.load (local.get $probs_ptr)) (v128.load (local.get $weights_ptr)))
@@ -229,7 +235,6 @@
             (br_if $horsum_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (i32.const 3)))
         )
 
-        ;;(call $l_i32 (i16x8.extract_lane_s 0 (local.get $acc)))
         (i16x8.extract_lane_s 0 (local.get $acc))
     )
 
@@ -384,7 +389,6 @@
             ;; 21504 = NUM_MAX_ACTIVE_CONTEXT_MODELS (42) * 16 * 32 possible dismodelstates, see DisModelContext::new() for the first two
             (br_if $copy_indirect_probs_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (i32.const 21504)))
         )
-
     )
 
     (func $hash_byte (param $state i32) (param $value i32) (result i32)
@@ -441,8 +445,6 @@
                 )
             )
         )
-        (call $l_u32 (local.get $index))
-        (call $l_u32 (local.get $entry))
         (i32.store16 (local.get $mempos) (local.get $entry))
     )
 
@@ -481,10 +483,6 @@
             )
         ) ;; apm_indices
         (i32.store offset=0x0f03000 (call $get_apm_data_offset (local.get $apm_index)) (i32.and (local.get $prob) (i32.const 0xff))) ;; apm_weights
-
-        (call $l_u32 (local.get $prob))
-        (call $l_u32 (i32.load offset=0x0f02000 (call $get_apm_data_offset (local.get $apm_index))))
-        (call $l_u32 (i32.load offset=0x0f03000 (call $get_apm_data_offset (local.get $apm_index))))
     )
 
     (func $history_get (export "history_get") (param $history_idx i32) (param $index i32) (result i32)
@@ -510,7 +508,6 @@
     (func $history_update (export "history_update") (param $history_idx i32) (param $byte i32)
         (local $byte_history_pos i32)
         (local.set $byte_history_pos (call $history_get_byte_history_pos (local.get $history_idx)))
-        (call $l_u32 (local.get $byte_history_pos))
 
         ;; byte_history[0x3000000 + (byte_history_pos * 32) + history_idx] = byte
         (i32.store8 offset=0x3000000
@@ -531,7 +528,6 @@
                 (i32.const 0xfffff)
             )
         )
-        (call $l_u32 (call $history_get_byte_history_pos (local.get $history_idx)))
     )
 
     (func $history_hash (export "history_hash") (param $history_idx i32) (param $byte_mask i32) (result i32)
@@ -628,9 +624,7 @@
         (local $index_buffer_offset i32)
 
         (i32.store offset=0x0f05000 (;match_model_bit_position;) (i32.shl (local.get $match_model_index) (i32.const 2)) (i32.const 0))
-        (call $l_u32 (local.get $byte_mask))
         (local.set $history_pos (i32.sub (call $history_get_byte_history_pos (i32.const 0)) (i32.const 1)))
-        (call $l_u32 (local.get $history_pos))
 
         (local.set $length (i32.load offset=0x0f05200 (;match_model_length;) (i32.shl (local.get $match_model_index) (i32.const 2))))
         (local.set $offset (i32.load offset=0x0f05100 (;match_model_offset;) (i32.shl (local.get $match_model_index) (i32.const 2))))
@@ -658,7 +652,6 @@
                         (i32.load offset=0x5000000 (;match_model_index_buffer;) (local.get $index_buffer_offset))
                     )
                 )
-                (call $l_u32 (i32.load offset=0x5000000 (;match_model_index_buffer;) (local.get $index_buffer_offset)))
                 (if (i32.and (local.get $offset) (i32.const 0xfffff)) (then
                     (block $update_byte_loop_end
                         (loop $update_byte_loop
@@ -681,19 +674,12 @@
         (i32.store offset=0x0f05200 (;match_model_length;) (i32.shl (local.get $match_model_index) (i32.const 2)) (local.get $length))
         (i32.store offset=0x0f05100 (;match_model_offset;) (i32.shl (local.get $match_model_index) (i32.const 2)) (local.get $offset))
         (i32.store offset=0x5000000 (;match_model_index_buffer;) (local.get $index_buffer_offset) (local.get $history_pos))
-        (call $l_u32 (local.get $length))
-        (call $l_u32 (local.get $offset))
 
         (i32.store offset=0x0f05300 (;match_model_history_hash;) (i32.shl (local.get $match_model_index) (i32.const 2))
             (i32.and
                 (call $history_hash (i32.const 0) (local.get $byte_mask))
                 (i32.const 0x3ffff)
             )
-        )
-        (call $l_u32             (i32.and
-                                     (call $history_hash (i32.const 0) (local.get $byte_mask))
-                                     (i32.const 0x3ffff)
-                                 )
         )
     )
 
@@ -740,9 +726,6 @@
                 (global.get $bit_history)
             )
         )
-
-        (call $l_u32 (global.get $bit_index))
-        (call $l_u32 (global.get $bit_history_hash))
 
         (local.set $i (i32.const 0))
         (loop $update_context_models_loop
@@ -828,11 +811,7 @@
             (i32.store offset=0x6000000 (;ht_checksums;) (i32.shl (local.get $hash) (i32.const 4)) (local.get $checksum))
             (i32.store offset=0x0f0a000 (;context_model_hashes;) (i32.shl (local.get $i) (i32.const 2)) (local.get $hash))
 
-            (call $l_u32 (local.get $hash))
-            (call $l_u32 (local.get $checksum))
-
             ;; indirect model
-            (call $l_u32 (i32.load offset=0x6000008 (;ht_indirect_counts;) (i32.shl (local.get $hash) (i32.const 4)))) ;; counts
             (local.set $tmp
                 (i32.or
                     (i32.shl (local.get $i) (i32.const 16))
@@ -840,7 +819,6 @@
                 )
             )
             (i32.store offset=0x0f0b000 (;context_model_indirect_prob_indices;) (i32.shl (local.get $i) (i32.const 2)) (local.get $tmp))
-            (call $l_u32 (local.get $tmp)) ;; indirect_prob_index
 
             (i32.store16 offset=0x0f06000 (;stage_1_probs;)
                 (local.get $probs_ptr)
@@ -928,7 +906,6 @@
         ;; debug: log all stage_1_probs
         (local.set $i (i32.const 0))
         (loop $debug_stage_1_probs_loop
-            (call $l_i32 (i32.load16_s offset=0x0f06000 (local.get $i)))
             (local.set $i (i32.add (local.get $i) (i32.const 2)))
             (br_if $debug_stage_1_probs_loop (i32.lt_u (local.get $i) (local.get $probs_ptr)))
         )
@@ -1000,7 +977,6 @@
         (loop $debug_stage_1_weight_contexts_loop
             (local.set $tmp (i32.const 0))
             (loop $debug_inner_s1wcl
-                (call $l_i32 (i32.load16_s (i32.add (call $get_stage_1_weights_ptr (local.get $i)) (i32.shl (local.get $tmp) (i32.const 1)))))
                 (local.set $tmp (i32.add (local.get $tmp) (i32.const 1)))
                 (br_if $debug_inner_s1wcl (i32.lt_u (local.get $tmp) (i32.const 8)))
             )
@@ -1010,14 +986,12 @@
         ;; debug: log all stage_1_weight_contexts
         (local.set $i (i32.const 0))
         (loop $debug_stage_1_weight_contexts_loop
-            (call $l_i32 (i32.load offset=0x0f07000 (;stage_1_weight_contexts;) (i32.shl (local.get $i) (i32.const 2))))
             (local.set $i (i32.add (local.get $i) (i32.const 1)))
             (br_if $debug_stage_1_weight_contexts_loop (i32.lt_u (local.get $i) (i32.const 8)))
         )
         ;; debug: log all stage_2_probs
         (local.set $i (i32.const 0))
         (loop $debug_stage_2_probs_loop
-            (call $l_i32 (i32.load16_s offset=0x0f08000 (local.get $i)))
             (local.set $i (i32.add (local.get $i) (i32.const 2)))
             (br_if $debug_stage_2_probs_loop (i32.lt_u (local.get $i) (i32.const 16)))
         )
@@ -1029,7 +1003,6 @@
                 (i32.const 1)
             )
         )
-        (call $l_i32 (global.get $stage_2_prob))
 
         (local.set $prob (global.get $stage_2_prob))
 
@@ -1062,14 +1035,284 @@
         (if (i32.lt_u (local.get $prob) (i32.const 1)) (then (local.set $prob (i32.const 1))))
         (if (i32.gt_u (local.get $prob) (i32.const 4095)) (then (local.set $prob (i32.const 4095))))
 
-        (call $l_i32 (local.get $prob))
         (local.get $prob)
+    )
+
+    (func $dm_update (param $byte i32)
+        (local $i i64)
+        (local $state i32)
+        (local $should_remain i32)
+
+        (local.set $state (call $dm_val))
+        (call $l_dm (local.get $state) (global.get $dm_opcode) (local.get $byte) (global.get $dm_read_pos) (global.get $dm_write_pos))
+
+        (block $done
+            (block $opcode
+                (block $prefixed_opcode
+                    (block $local_type_count
+                        (block $mem_arg_align
+                            (block $br_table
+                                (block $const_f32_or_f64
+                                    (block $leb
+                                        (br_table
+                                            $opcode
+                                            $prefixed_opcode
+                                            $leb
+                                            $leb
+                                            $local_type_count
+                                            $leb
+                                            $done
+                                            $leb
+                                            $leb
+                                            $const_f32_or_f64
+                                            $const_f32_or_f64
+                                            $leb
+                                            $leb
+                                            $leb
+                                            $leb
+                                            $mem_arg_align
+                                            $leb
+                                            $leb
+                                            $leb
+                                            $leb
+                                            $br_table
+                                            $leb
+                                            $leb
+                                            $done
+                                            $leb
+                                            (local.get $state)
+                                        )
+                                        unreachable
+                                    )
+                                    ;; leb
+                                    (if (call $dm_update_leb (local.get $byte)) (then) (else
+                                        (local.set $should_remain (i32.const 1))
+                                    ))
+                                    br $done
+                                )
+                                ;; const_f32_or_f64
+                                (global.set $dm_float_bytes_left (i32.sub (global.get $dm_float_bytes_left) (i32.const 1)))
+                                (if (global.get $dm_float_bytes_left) (then
+                                    (local.set $should_remain (i32.const 1))
+                                ))
+                                br $done
+                            )
+                            ;; br_table
+                            (if (call $dm_update_leb (local.get $byte)) (then
+                                (if (i64.ne (global.get $dm_leb_val) (i64.const 0)) (then
+                                    (loop $br_table_loop
+                                        (call $dm_write (i32.const 21))
+                                        (br_if $br_table_loop (i64.lt_u (local.tee $i (i64.add (local.get $i) (i64.const 1))) (global.get $dm_leb_val)))
+                                    )
+                                ))
+                                (call $dm_write (i32.const 21))
+                            ))
+                            br $done
+                        )
+                        ;; mem_arg_align
+                        (if (call $dm_update_leb (local.get $byte)) (then
+                            (if (i64.gt_u (global.get $dm_leb_val) (i64.const 64)) (then
+                                (call $dm_write (i32.const 16))
+                            ))
+                            (call $dm_write (i32.const 17))
+                        ))
+                        br $done
+                    )
+                    ;; local_type_count
+                    (if (call $dm_update_leb (local.get $byte)) (then
+                        (if (i64.ne (global.get $dm_leb_val) (i64.const 0)) (then
+                            (loop $local_type_count_loop
+                                (call $dm_write (i32.const 5))
+                                (call $dm_write (i32.const 6))
+                                (br_if $local_type_count_loop (i64.lt_u (local.tee $i (i64.add (local.get $i) (i64.const 1))) (global.get $dm_leb_val)))
+                            )
+                        ))
+                    ))
+                    br $done
+                )
+                ;; prefix_opcode
+                (if (call $dm_update_leb (local.get $byte)) (then
+                    (if (i32.eq (global.get $dm_opcode) (i32.const 0xfc)) (then
+                        (if
+                            (i32.or
+                                (i32.eq (local.get $byte) (i32.const 0x8))
+                                (i32.eq (local.get $byte) (i32.const 0xa))
+                            )
+                             (then
+                                (call $dm_write (i32.const 11))
+                                (call $dm_write (i32.const 12))
+                        ))
+                        (if
+                            (i32.or
+                                (i32.eq (local.get $byte) (i32.const 0xc))
+                                (i32.eq (local.get $byte) (i32.const 0xe))
+                            )
+                             (then
+                                (call $dm_write (i32.const 24))
+                                (call $dm_write (i32.const 24))
+                        ))
+                        (if (i32.and (i32.ge_u (local.get $byte) (i32.const 0x09)) (i32.le_u (local.get $byte) (i32.const 0x12)))
+                             (then
+                                (call $dm_write (i32.const 12))
+                        ))
+                    ))
+                    (if (i32.eq (global.get $dm_opcode) (i32.const 0xfd)) (then
+                        (if (i32.or
+                                (i32.le_u (local.get $byte) (i32.const 11))
+                                (i32.or (i32.eq (local.get $byte) (i32.const 92)) (i32.eq (local.get $byte) (i32.const 93)))
+                            )
+                             (then
+                                (call $dm_write (i32.const 15))
+                        ))
+                        (if (i32.or (i32.eq (local.get $byte) (i32.const 12)) (i32.eq (local.get $byte) (i32.const 13)))
+                             (then
+                                (loop $write_vector_byte_loop
+                                    (call $dm_write (i32.const 23))
+                                    (br_if $write_vector_byte_loop (i64.lt_u (local.tee $i (i64.add (local.get $i) (i64.const 1))) (i64.const 16)))
+                                )
+                        ))
+                        (if
+                            (i32.or
+                                (i32.and (i32.ge_u (local.get $byte) (i32.const 21)) (i32.le_u (local.get $byte) (i32.const 34)))
+                                (i32.and (i32.ge_u (local.get $byte) (i32.const 84)) (i32.le_u (local.get $byte) (i32.const 91)))
+                            )
+                             (then
+                                (call $dm_write (i32.const 15))
+                                (call $dm_write (i32.const 22))
+                        ))
+                    ))
+                    (if (i32.eq (global.get $dm_opcode) (i32.const 0xfe)) (then
+                        (if (i32.eq (local.get $byte) (i32.const 3))
+                             (then
+                                (call $dm_write (i32.const 23))
+                        ))
+                        (if
+                            (i32.or
+                                (i32.and (i32.ge_u (local.get $byte) (i32.const 0x0)) (i32.le_u (local.get $byte) (i32.const 0x02)))
+                                (i32.and (i32.ge_u (local.get $byte) (i32.const 0x10)) (i32.le_u (local.get $byte) (i32.const 0x4e)))
+                            )
+                             (then
+                                (call $dm_write (i32.const 15))
+                        ))
+                    ))
+                ))
+                br $done
+            )
+            ;; opcode
+            (global.set $dm_opcode (local.get $byte))
+
+            (if (i32.and (i32.ge_u (local.get $byte) (i32.const 0x2)) (i32.le_u (local.get $byte) (i32.const 0x4))) (then
+                ;; block/loop/if
+                (global.set $dm_depth (i32.add (global.get $dm_depth) (i32.const 1)))
+                (call $dm_write (i32.const 19))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0xb)) (then
+                ;; end of block
+                (if (i32.gt_u (global.get $dm_depth) (i32.const 0)) (then
+                    (global.set $dm_depth (i32.sub (global.get $dm_depth) (i32.const 1)))
+                ) (else
+                    ;; end of function, so prepare for the next one
+                    (call $dm_write (i32.const 3))
+                    (call $dm_write (i32.const 4))
+                ))
+            ))
+            (if
+                (i32.or
+                    (i32.and (i32.ge_u (local.get $byte) (i32.const 0xc)) (i32.le_u (local.get $byte) (i32.const 0xd)))
+                    (i32.and (i32.ge_u (local.get $byte) (i32.const 0xd5)) (i32.le_u (local.get $byte) (i32.const 0xd6)))
+                )
+                 (then
+                    (call $dm_write (i32.const 21))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0xe)) (then
+                (call $dm_write (i32.const 20))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0x10)) (then
+                (call $dm_write (i32.const 18))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0x11)) (then
+                (call $dm_write (i32.const 24))
+                (call $dm_write (i32.const 24))
+            ))
+            (if (i32.and (i32.ge_u (local.get $byte) (i32.const 0x20)) (i32.le_u (local.get $byte) (i32.const 0x22))) (then
+                (call $dm_write (i32.const 13))
+            ))
+            (if (i32.and (i32.ge_u (local.get $byte) (i32.const 0x23)) (i32.le_u (local.get $byte) (i32.const 0x24))) (then
+                (call $dm_write (i32.const 14))
+            ))
+            (if (i32.and (i32.ge_u (local.get $byte) (i32.const 0x28)) (i32.le_u (local.get $byte) (i32.const 0x3e))) (then
+                (call $dm_write (i32.const 15))
+            ))
+            (if (i32.and (i32.ge_u (local.get $byte) (i32.const 0x3f)) (i32.le_u (local.get $byte) (i32.const 0x40))) (then
+                (call $dm_write (i32.const 12))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0x41)) (then
+                (call $dm_write (i32.const 7))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0x42)) (then
+                (call $dm_write (i32.const 8))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0x43)) (then
+                (call $dm_write (i32.const 9))
+                (global.set $dm_float_bytes_left (i32.const 4))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0x44)) (then
+                (call $dm_write (i32.const 10))
+                (global.set $dm_float_bytes_left (i32.const 8))
+            ))
+            (if (i32.eq (local.get $byte) (i32.const 0xd0)) (then
+                (call $dm_write (i32.const 24))
+            ))
+            (if
+                (i32.or
+                    (i32.eq (local.get $byte) (i32.const 0xd2))
+                    (i32.and (i32.ge_u (local.get $byte) (i32.const 0xd5)) (i32.le_u (local.get $byte) (i32.const 0xd6)))
+                )
+                 (then
+                    (call $dm_write (i32.const 21))
+            ))
+        )
+
+        (if (local.get $should_remain) (then) (else
+            (global.set $dm_read_pos (i32.and (i32.add (global.get $dm_read_pos) (i32.const 1)) (i32.const 0x3fff)))
+
+            (if (i32.eq (global.get $dm_read_pos) (global.get $dm_write_pos)) (then
+                (global.set $dm_read_pos (i32.const 0))
+                (global.set $dm_write_pos (i32.const 1))
+                (i32.store8 offset=0x0f20000 (i32.const 0) (i32.const 0))
+            ))
+        ))
+    )
+
+    (func $dm_update_leb (param $byte i32) (result i32)
+        (global.set $dm_temp_leb_val
+            (i64.add (global.get $dm_temp_leb_val) (i64.extend_i32_u (i32.shl (i32.and (local.get $byte) (i32.const 0x7f)) (global.get $dm_leb_shift))))
+        )
+        (global.set $dm_leb_shift (i32.add (global.get $dm_leb_shift) (i32.const 7)))
+        (if (result i32) (i32.ne (i32.and (local.get $byte) (i32.const 0x80)) (i32.const 0x80))
+            (then
+                (global.set $dm_leb_val (global.get $dm_temp_leb_val))
+                (global.set $dm_temp_leb_val (i64.const 0))
+                (global.set $dm_leb_shift (i32.const 0))
+                (i32.const 1)
+            ) (else (i32.const 0))
+        )
+    )
+
+    (func $dm_write (param $state i32)
+        (i32.store8 offset=0x0f20000 (global.get $dm_write_pos) (local.get $state))
+        (global.set $dm_write_pos (i32.and (i32.add (global.get $dm_write_pos) (i32.const 1)) (i32.const 0x3fff)))
+    )
+
+    (func $dm_val (result i32)
+        (i32.load8_u offset=0x0f20000 (global.get $dm_read_pos))
     )
 
     (func $model_update (export "model_update") (param $bit i32) (param $is_in_code_section i32)
         (local $i i32)
         (local $indirect_prob_index i32)
         (local $indirect_prob i32)
+        (local $byte i32)
         (local $hash i32)
         (local $count i32)
         (local $prob i32)
@@ -1086,7 +1329,6 @@
             (local.set $hash
                 (i32.load offset=0x0f0a000 (;context_model_hashes;) (i32.shl (local.get $i) (i32.const 2)))
             )
-            (call $l_u32 (local.get $hash))
 
             ;; indirect model
             ;; update indirect prob
@@ -1119,8 +1361,6 @@
                     (i32.const 0xffff)
                 )
             )
-            (call $l_u32 (local.get $indirect_prob_index))
-            (call $l_u32 (local.get $indirect_prob))
 
             (i32.store16
                 offset=0x1ac00000 (;context_indirect_probs;)
@@ -1176,7 +1416,6 @@
                     (i32.const 0xffff)
                 )
             )
-            (call $l_u32 (i32.load offset=0x6000008 (;ht_indirect_counts;) (i32.shl (local.get $hash) (i32.const 4))))
 
             ;; stationary model
             (local.set $counts
@@ -1212,7 +1451,6 @@
                     (local.get $prob)
                 )
             )
-            (call $l_u32 (i32.load offset=0x6000004 (;ht_stationary_counts;) (i32.shl (local.get $hash) (i32.const 4))))
 
             ;; run model
             (local.set $count
@@ -1232,8 +1470,6 @@
             ))
             (i32.store16 offset=0x600000c (;ht_run_counts;) (i32.shl (local.get $hash) (i32.const 4)) (local.get $count))
             (i32.store16 offset=0x600000e (;ht_run_symbol;) (i32.shl (local.get $hash) (i32.const 4)) (local.get $bit))
-            (call $l_u32 (local.get $count))
-            (call $l_u32 (local.get $bit))
 
             (br_if $update_context_models_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (global.get $num_active_context_models)))
         )
@@ -1270,8 +1506,6 @@
         ;; debug print
         (local.set $i (i32.const 0))
         (loop $debug_print_loop
-            (call $l_i32 (i32.load16_s (i32.add (local.get $i) (i32.const 0x0f08000 (;stage_2_probs;)))))
-            (call $l_i32 (i32.load16_s (i32.add (local.get $i) (i32.add (i32.const 0x0f0d000 (;dis_model_context.stage_2_weights;)) (i32.shl (global.get $dis_model_state) (i32.const 4))))))
             (br_if $debug_print_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 2))) (i32.const 16)))
         )
 
@@ -1289,19 +1523,22 @@
             )
         )
         (global.set $bit_index (i32.add (global.get $bit_index) (i32.const 1)))
-        (call $l_u32 (global.get $bit_history))
 
         (if (i32.eq (global.get $bit_index) (i32.const 8))
             (then
-                (call $history_update (i32.const 0) (global.get $bit_history))
+                (local.set $byte (global.get $bit_history))
+                (call $history_update (i32.const 0) (local.get $byte))
                 (if (global.get $dis_model_state) (then
-                    (call $history_update (global.get $dis_model_state) (global.get $bit_history))
+                    (call $history_update (global.get $dis_model_state) (local.get $byte))
                 ))
 
                 (global.set $bit_history (i32.const 0))
                 (global.set $bit_index (i32.const 0))
+                (if (local.get $is_in_code_section) (then
+                    (call $dm_update (local.get $byte))
+                ))
                 (global.set $dis_model_state
-                    (select (i32.const 1) (i32.const 0) (local.get $is_in_code_section))
+                    (select (i32.add (call $dm_val) (i32.const 1)) (i32.const 0) (local.get $is_in_code_section))
                 )
                 (global.set $num_active_context_models
                     (select (i32.const 42) (i32.const 21) (local.get $is_in_code_section))
@@ -1311,23 +1548,16 @@
                 )
 
                 ;; update active context models
-                (call $l_u32 (i32.const 12345678))
-                (call $l_u32 (global.get $num_active_context_models))
                 (local.set $i (i32.const 0))
                 (loop $update_active_context_models_loop
-                    (call $l_u32 (local.get $i))
-                    (call $l_u32 (i32.load8_u offset=0x00c1000 (;byte_masks;) (i32.rem_u (local.get $i) (i32.const 21))))
                     (local.set $history_index
                         (select (i32.const 0) (global.get $dis_model_state) (i32.lt_u (local.get $i) (i32.const 21)))
                     )
                     (local.set $hash
                         (call $history_hash (local.get $history_index) (i32.load8_u offset=0x00c1000 (;byte_masks;) (i32.rem_u (local.get $i) (i32.const 21))))
                     )
-                    (call $l_u32 (local.get $history_index))
-                    (call $l_u32 (local.get $hash))
                     (local.set $hash (call $hash_byte (local.get $hash) (global.get $dis_model_state)))
                     (local.set $hash (call $hash_byte (local.get $hash) (i32.const 0)))
-                    (call $l_u32 (i32.load offset=0x0f09000 (;context_model_byte_hashes;) (i32.shl (local.get $i) (i32.const 2))))
                     (i32.store offset=0x0f09000 (;context_model_byte_hashes;) (i32.shl (local.get $i) (i32.const 2)) (local.get $hash))
                     (br_if $update_active_context_models_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (global.get $num_active_context_models)))
                 )
@@ -1407,10 +1637,7 @@
 
                 (local.set $i (i32.const 0))
                 (loop $decode_byte_loop
-                    (call $l_sep)
                     (local.set $bit (call $range_decode_bit (call $model_prob)))
-                    (call $l_u32 (local.get $bit))
-                    (call $l_sep)
                     (i32.store8 offset=0x0100000 (global.get $byte_index)
                         (i32.or
                             (i32.shl (i32.load8_u offset=0x0100000 (global.get $byte_index)) (i32.const 1))

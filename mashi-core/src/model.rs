@@ -1,6 +1,5 @@
 extern crate alloc;
 use crate::dis_model::{DisModel, NUM_DIS_MODEL_STATES};
-use crate::dis_model2::DisModel2;
 use alloc::alloc::{alloc_zeroed, dealloc};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -307,7 +306,6 @@ pub struct Model {
     histories: Vec<History>,
 
     dis_model: DisModel,
-    dis_model2: DisModel2,
     dis_model_state: u32,
 
     hash_table: *mut HashTableEntry,
@@ -378,7 +376,6 @@ impl Model {
             histories,
 
             dis_model: DisModel::new(),
-            dis_model2: DisModel2::new(),
             dis_model_state: 0,
 
             hash_table: unsafe { alloc_zeroed(hash_table_layout.clone()) } as *mut _,
@@ -584,7 +581,7 @@ impl Model {
     }
 
     // update assumes prob has been called _once_ for the current bit _before_ update has been called!
-    pub fn update(&mut self, bit: u32, is_in_code_section: bool, dis_model_2: bool) {
+    pub fn update(&mut self, bit: u32, is_in_code_section: bool) {
         let dis_model_context = &mut self.dis_model_contexts[self.dis_model_state as usize];
 
         // Update context models
@@ -717,21 +714,13 @@ impl Model {
             }
 
             if is_in_code_section {
-                if dis_model_2 {
-                    self.dis_model2.update(byte);
-                } else {
                 self.dis_model.update(byte);
-                }
             }
 
             self.bit_history = 0;
             self.bit_index = 0;
 
-            if dis_model_2 {
-                self.dis_model_state = if is_in_code_section { 1 + (self.dis_model2.val()) } else { 0 };
-            } else {
-                self.dis_model_state = if is_in_code_section { 1 + (self.dis_model.val()) } else { 0 };
-            }
+            self.dis_model_state = if is_in_code_section { 1 + (self.dis_model.val()) } else { 0 };
             self.num_active_context_models = if is_in_code_section {
                 NUM_MAX_ACTIVE_CONTEXT_MODELS
             } else {
