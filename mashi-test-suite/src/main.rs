@@ -1,9 +1,9 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use mashi_core::{compress, decompress};
+use mashi_core::{compress, wasm_decompress};
 use std::ffi::OsStr;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use wast::parser::ParseBuffer;
 use wast::{parser, Wast, WastDirective};
 
@@ -79,6 +79,13 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
 
+            let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/out");
+            if !fs::exists(&target)? {
+                fs::create_dir(&target)?;
+            }
+            let binary_path = target.join(wast_file.with_extension("wasm").file_name().unwrap());
+            fs::write(binary_path, binary)?;
+
             let prefix = format!("{:>40} [{:>3}/{:>3}]: ", wast_file.file_name().unwrap().display(), idx + 1, binaries.len());
             let p = ProgressBar::new(binary.len() as u64).with_prefix(prefix);
             p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.cyan/blue} {pos:>7}/{len:7}] {msg}")?
@@ -88,7 +95,7 @@ fn main() -> anyhow::Result<()> {
             });
             p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.green/red} {pos:>7}/{len:7}] {msg}")?
                 .progress_chars("##-"));
-            let decompressed = decompress(&compressed, |pos| {
+            let decompressed = wasm_decompress(&compressed, |pos| {
                 p.set_position(pos as u64);
             });
             let result = *binary == decompressed;

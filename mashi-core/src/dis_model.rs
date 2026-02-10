@@ -1,5 +1,3 @@
-use core::fmt::{Display, Formatter};
-use std::collections::VecDeque;
 use std::mem;
 
 pub const NUM_DIS_MODEL_STATES: usize = mem::variant_count::<DisModelState>();
@@ -231,7 +229,7 @@ impl DisModel {
             DisModelState::BrTable => {
                 if let Some(item_count) = self.update_leb(byte) {
                     // br_tables always contain one more element
-                    for i in 0..item_count {
+                    for _ in 0..item_count {
                         self.write(DisModelState::LabelIdx);
                     }
                     self.write(DisModelState::LabelIdx);

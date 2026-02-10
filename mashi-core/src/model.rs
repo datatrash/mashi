@@ -204,7 +204,7 @@ impl Apm {
         let mut tab = vec![0; tab_size];
         for i in 0..num_contexts {
             for x in 0..(APM_TAB_SIZE + 1) {
-                tab[i * (APM_TAB_SIZE + 1) + x] = squash((x as i32 * (4096 / APM_TAB_SIZE) as i32 - 2047)) as i16;
+                tab[i * (APM_TAB_SIZE + 1) + x] = squash(x as i32 * (4096 / APM_TAB_SIZE) as i32 - 2047) as i16;
             }
         }
 
@@ -779,19 +779,17 @@ fn stretch(p: u32, stretch_tab: &[i32]) -> i32 {
 }
 
 pub fn mix(probs: &[i16x8], weights: &[i16x8], count: usize) -> i32 {
-    unsafe {
-        let mut acc = i16x8::splat(0);
+    let mut acc = i16x8::splat(0);
 
-        // Vertical sums
-        for i in 0..count {
-            acc += probs[i].mul_hi(weights[i]);
-        }
-        // Horizontal sums
-        acc = horizontal_pair_add(acc, acc);
-        acc = horizontal_pair_add(acc, acc);
-        acc = horizontal_pair_add(acc, acc);
-        acc[0] as i32
+    // Vertical sums
+    for i in 0..count {
+        acc += probs[i].mul_hi(weights[i]);
     }
+    // Horizontal sums
+    acc = horizontal_pair_add(acc, acc);
+    acc = horizontal_pair_add(acc, acc);
+    acc = horizontal_pair_add(acc, acc);
+    acc[0] as i32
 }
 
 pub fn train(probs: &[i16x8], weights: &mut [i16x8], count: usize, bit: i32, current_prob: i32) {
@@ -801,11 +799,9 @@ pub fn train(probs: &[i16x8], weights: &mut [i16x8], count: usize, bit: i32, cur
     }
     let prediction_error = i16x8::splat(prediction_error as _);
 
-    unsafe {
-        for i in 0..count {
-            let weight_adjusts = (((probs[i] << 1).mul_hi(prediction_error)) + i16x8::splat(1)) >> 1;
-            weights[i] = weights[i].saturating_add(weight_adjusts);
-        }
+    for i in 0..count {
+        let weight_adjusts = (((probs[i] << 1).mul_hi(prediction_error)) + i16x8::splat(1)) >> 1;
+        weights[i] = weights[i].saturating_add(weight_adjusts);
     }
 }
 

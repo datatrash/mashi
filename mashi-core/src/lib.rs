@@ -1,19 +1,160 @@
-#![allow(unused, dead_code, internal_features)]
-#![feature(core_intrinsics, portable_simd, variant_count)]
+#![feature(portable_simd, variant_count)]
 
 mod compressor;
 mod dis_model;
 mod model;
 
+use crate::dis_model::DisModelState;
 pub use compressor::{compress, decompress};
 
-const DEBUG_LOG: bool = false;
+use std::fs::File;
+use std::io::Write;
+use std::mem;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use wasmi::*;
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+const DEBUG_LOG: bool = true;
+
+pub fn wasm_decompress<F>(compressed: &[u8], mut _f: F) -> Vec<u8>
+where
+    F: FnMut(usize),
+{
+    let mut test = WasmDecompressor::new();
+    {
+        let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
+        memory[..compressed.len()].copy_from_slice(&compressed);
+    }
+
+    let size = test.instance
+        .get_typed_func::<(), i32>(&test.store, "decompress").unwrap()
+        .call(&mut test.store, ()).unwrap() as usize;
+
+    let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
+    memory[1024 * 1024..1024 * 1024 + size].to_vec()
+}
+
+struct WasmDecompressor {
+    instance: wasmi::Instance,
+    store: Store<()>,
+}
+
+#[allow(unused)]
+impl WasmDecompressor {
+    fn new() -> Self {
+        let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("log/wasm.txt");
+        let file = Arc::new(Mutex::new(File::create(&log_path).unwrap()));
+
+        let engine = Engine::default();
+        let module = Module::new(&engine, include_bytes!("decompress.wat")).unwrap();
+
+        let mut store = Store::new(&engine, ());
+        let mut linker = Linker::new(&engine);
+        let f = file.clone();
+        linker.func_wrap("host", "l_sep", move |_caller: Caller<'_, ()>| {
+            if DEBUG_LOG { writeln!(f.lock().unwrap(), "=============================================================================").unwrap(); }
+        }).unwrap();
+        let f = file.clone();
+        linker.func_wrap("host", "l_i32", move |_caller: Caller<'_, ()>, param: i32| {
+            if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param}").unwrap(); }
+        }).unwrap();
+        let f = file.clone();
+        linker.func_wrap("host", "l_u32", move |_caller: Caller<'_, ()>, param: u32| {
+            if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param}").unwrap(); }
+        }).unwrap();
+        let f = file.clone();
+        linker.func_wrap("host", "l_x32", move |_caller: Caller<'_, ()>, param: u32| {
+            if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param:0X}").unwrap(); }
+        }).unwrap();
+        let f = file.clone();
+        linker.func_wrap("host", "l_dm", move |_caller: Caller<'_, ()>, state: u32, opcode: i32, byte: i32, read_pos: u32, write_pos: u32| {
+            let s: DisModelState = unsafe { mem::transmute(state as u8) };
+            if DEBUG_LOG { writeln!(f.lock().unwrap(), "{:?} | self.opcode: {:0X} | incoming byte: {:0X} (r: {}, w: {})", s, opcode, byte, read_pos, write_pos).unwrap(); }
+        }).unwrap();
+        let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
+
+        Self {
+            instance,
+            store,
+        }
+    }
+
+    fn memory(&self) -> &[u8] {
+        self.instance.get_memory(&self.store, "memory").unwrap().data(&self.store)
+    }
+
+    fn model_init(&mut self) {
+        self.instance
+            .get_typed_func::<(), ()>(&self.store, "model_init").unwrap()
+            .call(&mut self.store, ()).unwrap();
+    }
+
+    fn history_hash(&mut self, history_index: i32, byte_mask: i32) -> i32 {
+        self.instance
+            .get_typed_func::<(i32, i32), i32>(&self.store, "history_hash").unwrap()
+            .call(&mut self.store, (history_index, byte_mask)).unwrap()
+    }
+
+    fn history_update(&mut self, history_index: i32, byte: i32) {
+        self.instance
+            .get_typed_func::<(i32, i32), ()>(&self.store, "history_update").unwrap()
+            .call(&mut self.store, (history_index, byte)).unwrap();
+    }
+
+    fn match_model_prob(&mut self, match_model_index: i32) -> i32 {
+        self.instance
+            .get_typed_func::<i32, i32>(&self.store, "match_model_prob").unwrap()
+            .call(&mut self.store, match_model_index).unwrap()
+    }
+
+    fn match_model_update_bit(&mut self, match_model_index: i32, bit: i32) {
+        self.instance
+            .get_typed_func::<(i32, i32), ()>(&self.store, "match_model_update_bit").unwrap()
+            .call(&mut self.store, (match_model_index, bit)).unwrap()
+    }
+
+    fn match_model_update_byte(&mut self, match_model_index: i32, byte_mask: i32) {
+        self.instance
+            .get_typed_func::<(i32, i32), ()>(&self.store, "match_model_update_byte").unwrap()
+            .call(&mut self.store, (match_model_index, byte_mask)).unwrap()
+    }
+
+    fn apm_stage_set_index(&mut self, apm_index: i32, context: i32, prob: i32) {
+        self.instance
+            .get_typed_func::<(i32, i32, i32), ()>(&self.store, "apm_stage_set_index").unwrap()
+            .call(&mut self.store, (apm_index, context, prob)).unwrap();
+    }
+
+    fn apm_stage_prob(&mut self, apm_index: i32) -> i32 {
+        self.instance
+            .get_typed_func::<i32, i32>(&self.store, "apm_stage_prob").unwrap()
+            .call(&mut self.store, apm_index).unwrap()
+    }
+
+    fn apm_stage_update(&mut self, apm_index: i32, bit: i32) {
+        self.instance
+            .get_typed_func::<(i32, i32), ()>(&self.store, "apm_stage_update").unwrap()
+            .call(&mut self.store, (apm_index, bit)).unwrap();
+    }
+
+    fn model_prob(&mut self) -> i32 {
+        self.instance
+            .get_typed_func::<(), i32>(&self.store, "model_prob").unwrap()
+            .call(&mut self.store, ()).unwrap()
+    }
+
+    fn model_update(&mut self, bit: i32, is_in_code_section: bool) {
+        self.instance
+            .get_typed_func::<(i32, i32), ()>(&self.store, "model_update").unwrap()
+            .call(&mut self.store, (bit, if is_in_code_section { 1 } else { 0 })).unwrap();
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dis_model::{DisModelState, NUM_DIS_MODEL_STATES};
-    use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, BIT_MASKS, BYTE_MASKS, HISTORY_BUFFER_LEN, NUM_MATCH_MODELS};
+    use crate::dis_model::NUM_DIS_MODEL_STATES;
+    use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, BIT_MASKS, BYTE_MASKS, NUM_MATCH_MODELS};
     use log::LevelFilter;
     use log4rs::append::file::FileAppender;
     use log4rs::config::{Appender, Root};
@@ -21,17 +162,12 @@ mod tests {
     use log4rs::Config;
     use num_traits::ToBytes;
     use rand::prelude::StdRng;
-    use rand::{Rng, RngCore, SeedableRng};
-    use std::fs::File;
-    use std::io::Write;
-    use std::path::PathBuf;
+    use rand::{Rng, RngExt, SeedableRng};
     use std::simd::i16x8;
-    use std::sync::{Arc, Mutex};
-    use std::{fs, mem, println, ptr, slice};
-    use wasmi::{Caller, Engine, Linker, Module, Store};
+    use std::{println, ptr, slice};
 
     fn init_log() {
-        if (DEBUG_LOG) {
+        if DEBUG_LOG {
             let logfile = FileAppender::builder()
                 .append(false)
                 .encoder(Box::new(PatternEncoder::new("{m}\n")))
@@ -59,139 +195,13 @@ mod tests {
         assert_eq!(src, out);
     }
 
-    struct HostState;
-    struct Test {
-        instance: wasmi::Instance,
-        store: Store<HostState>,
-        file: Arc<Mutex<File>>,
-    }
-
-    impl Test {
-        fn new() -> Self {
-            let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("log/wasm.txt");
-            let mut file = Arc::new(Mutex::new(File::create(&log_path).unwrap()));
-
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/decompress.wat");
-            let wasm = fs::read_to_string(&path).unwrap();
-            let engine = Engine::default();
-            let module = Module::new(&engine, wasm.as_bytes()).unwrap();
-
-            let mut store = Store::new(&engine, HostState);
-            let mut linker = <Linker<HostState>>::new(&engine);
-            let f = file.clone();
-            linker.func_wrap("host", "l_sep", move |caller: Caller<'_, HostState>| {
-                if DEBUG_LOG { writeln!(f.lock().unwrap(), "============================================================================="); }
-            });
-            let f = file.clone();
-            linker.func_wrap("host", "l_i32", move |caller: Caller<'_, HostState>, param: i32| {
-                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param}"); }
-            });
-            let f = file.clone();
-            linker.func_wrap("host", "l_u32", move |caller: Caller<'_, HostState>, param: u32| {
-                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param}"); }
-            });
-            let f = file.clone();
-            linker.func_wrap("host", "l_x32", move |caller: Caller<'_, HostState>, param: u32| {
-                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param:0X}"); }
-            });
-            let f = file.clone();
-            linker.func_wrap("host", "l_dm", move |caller: Caller<'_, HostState>, state: u32, opcode: i32, byte: i32, read_pos: u32, write_pos: u32| {
-                let s: DisModelState = unsafe { mem::transmute(state as u8) };
-                if DEBUG_LOG { writeln!(f.lock().unwrap(), "{:?} | self.opcode: {:0X} | incoming byte: {:0X} (r: {}, w: {})", s, opcode, byte, read_pos, write_pos); }
-            });
-            let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
-
-            Self {
-                instance,
-                store,
-                file,
-            }
-        }
-
-        fn memory(&self) -> &[u8] {
-            self.instance.get_memory(&self.store, "memory").unwrap().data(&self.store)
-        }
-
-        fn model_init(&mut self) {
-            self.instance
-                .get_typed_func::<(), ()>(&self.store, "model_init").unwrap()
-                .call(&mut self.store, ()).unwrap();
-        }
-
-        fn history_get(&mut self, history_index: i32, index: i32) -> i32 {
-            self.instance
-                .get_typed_func::<(i32, i32), (i32)>(&self.store, "history_get").unwrap()
-                .call(&mut self.store, (history_index, index)).unwrap()
-        }
-
-        fn history_hash(&mut self, history_index: i32, byte_mask: i32) -> i32 {
-            self.instance
-                .get_typed_func::<(i32, i32), (i32)>(&self.store, "history_hash").unwrap()
-                .call(&mut self.store, (history_index, byte_mask)).unwrap()
-        }
-
-        fn history_update(&mut self, history_index: i32, byte: i32) {
-            self.instance
-                .get_typed_func::<(i32, i32), ()>(&self.store, "history_update").unwrap()
-                .call(&mut self.store, (history_index, byte)).unwrap();
-        }
-
-        fn match_model_prob(&mut self, match_model_index: i32) -> i32 {
-            self.instance
-                .get_typed_func::<(i32), (i32)>(&self.store, "match_model_prob").unwrap()
-                .call(&mut self.store, (match_model_index)).unwrap()
-        }
-
-        fn match_model_update_bit(&mut self, match_model_index: i32, bit: i32) {
-            self.instance
-                .get_typed_func::<(i32, i32), ()>(&self.store, "match_model_update_bit").unwrap()
-                .call(&mut self.store, (match_model_index, bit)).unwrap()
-        }
-
-        fn match_model_update_byte(&mut self, match_model_index: i32, byte_mask: i32) {
-            self.instance
-                .get_typed_func::<(i32, i32), ()>(&self.store, "match_model_update_byte").unwrap()
-                .call(&mut self.store, (match_model_index, byte_mask)).unwrap()
-        }
-
-        fn apm_stage_set_index(&mut self, apm_index: i32, context: i32, prob: i32) {
-            self.instance
-                .get_typed_func::<(i32, i32, i32), ()>(&self.store, "apm_stage_set_index").unwrap()
-                .call(&mut self.store, (apm_index, context, prob)).unwrap();
-        }
-
-        fn apm_stage_prob(&mut self, apm_index: i32) -> i32 {
-            self.instance
-                .get_typed_func::<(i32), (i32)>(&self.store, "apm_stage_prob").unwrap()
-                .call(&mut self.store, (apm_index)).unwrap()
-        }
-
-        fn apm_stage_update(&mut self, apm_index: i32, bit: i32) {
-            self.instance
-                .get_typed_func::<(i32, i32), ()>(&self.store, "apm_stage_update").unwrap()
-                .call(&mut self.store, (apm_index, bit)).unwrap();
-        }
-
-        fn model_prob(&mut self) -> i32 {
-            self.instance
-                .get_typed_func::<(), (i32)>(&self.store, "model_prob").unwrap()
-                .call(&mut self.store, ()).unwrap()
-        }
-
-        fn model_update(&mut self, bit: i32, is_in_code_section: bool) {
-            self.instance
-                .get_typed_func::<(i32, i32), ()>(&self.store, "model_update").unwrap()
-                .call(&mut self.store, (bit, if is_in_code_section { 1 } else { 0 })).unwrap();
-        }
-    }
-
     #[test]
     fn test_history() {
         let mut r = StdRng::seed_from_u64(42);
         let mut data = [0i32; 64];
         r.fill(&mut data);
 
-        let mut test = Test::new();
+        let mut test = WasmDecompressor::new();
         test.model_init();
 
         let mut histories = vec![];
@@ -207,10 +217,6 @@ mod tests {
                 let new_byte = (r.next_u32() & 0xff) as u8;
                 histories[i].update(new_byte);
                 test.history_update(i as i32, new_byte as i32);
-
-                for x in 0..HISTORY_BUFFER_LEN {
-                    //assert_eq!(histories[i].get(x), test.history_get(i as i32, x as i32) as u8, "history_get mismatch at {x}, pos: {pos}");
-                }
             }
         }
     }
@@ -221,15 +227,15 @@ mod tests {
         let mut data = [0i32; 262144];
         r.fill(&mut data);
 
-        let mut test = Test::new();
+        let mut test = WasmDecompressor::new();
         test.model_init();
 
         let mut history = History::new();
         let mut match_models = vec![];
-        for i in 0..NUM_MATCH_MODELS {
+        for _ in 0..NUM_MATCH_MODELS {
             match_models.push(MatchModel::new());
         }
-        for (pos, b) in data.iter().enumerate() {
+        for (pos, _) in data.iter().enumerate() {
             for i in 0..NUM_MATCH_MODELS {
                 let rust_prob = match_models[i].prob(&history);
                 let wasm_prob = test.match_model_prob(i as i32);
@@ -262,16 +268,16 @@ mod tests {
         let mut probs = [0i32; 262144];
         r.fill(&mut probs);
 
-        let mut test = Test::new();
+        let mut test = WasmDecompressor::new();
         test.model_init();
 
-        let mut apm_stages = &mut [
+        let apm_stages = &mut [
             Apm::new(APM_CONTEXT_SIZE, 3),
             Apm::new(APM_CONTEXT_SIZE, 3),
             Apm::new(APM_CONTEXT_SIZE, 2)
         ];
         for b in &probs {
-            let mut apm_index = b.rem_euclid(3);
+            let apm_index = b.rem_euclid(3);
             let apm_context = r.next_u32();
             let prob = -2047 + (b & 4095);
             test.apm_stage_set_index(apm_index, apm_context as i32, prob);
@@ -296,7 +302,7 @@ mod tests {
             let mut bits = [0u8; 8];
             r.fill_bytes(&mut bits);
 
-            let mut test = Test::new();
+            let mut test = WasmDecompressor::new();
             test.model_init();
 
             let mut model = Model::new();
@@ -325,10 +331,10 @@ mod tests {
 
     #[test]
     fn test_stretch() {
-        let mut test = Test::new();
+        let mut test = WasmDecompressor::new();
         test.model_init();
 
-        let mut model = Model::new();
+        let model = Model::new();
         let memory = test.memory()[0x00d0000..0x00d1000].as_ptr() as *const i32;
         let memory: &[i32] = unsafe { slice::from_raw_parts(memory, 4096) };
         assert_eq!(memory, &model.stretch_tab);
@@ -338,7 +344,7 @@ mod tests {
     fn test_mix_and_train() {
         let mut r = StdRng::seed_from_u64(42);
 
-        let mut test = Test::new();
+        let mut test = WasmDecompressor::new();
         let probs = vec![
             i16x8::from_slice(&[1111, 2222, 3333, 4444, 5555, 6666, 7777, 8888]),
             i16x8::from_slice(&[555, 1555, 2555, 3555, 4555, 5555, 6555, 7555]),
@@ -357,7 +363,7 @@ mod tests {
         // mix and train a while
         for _ in 0..5000 {
             assert_eq!(test.instance
-                           .get_typed_func::<(i32, i32, u32), (i32)>(&test.store, "mix").unwrap()
+                           .get_typed_func::<(i32, i32, u32), i32>(&test.store, "mix").unwrap()
                            .call(&mut test.store, (0, 1024, 2)).unwrap(), model::mix(&probs, &weights, 2));
 
             loop {
@@ -378,10 +384,10 @@ mod tests {
 
     #[test]
     fn test_indirect_probs() {
-        let mut test = Test::new();
+        let mut test = WasmDecompressor::new();
         test.model_init();
 
-        let mut model = Model::new();
+        let model = Model::new();
         for i in 0..NUM_DIS_MODEL_STATES + 1 {
             const LENGTH_IN_BYTES: usize = 0x540000;
             let start = 0x1ac00000 + i * LENGTH_IN_BYTES;
@@ -397,10 +403,10 @@ mod tests {
 
         init_log();
 
-        let (high_level_decompressed, model) = decompress(&compressed, |_| ());
+        let (high_level_decompressed, _) = decompress(&compressed, |_| ());
         assert_eq!(&high_level_decompressed, &src);
 
-        let mut test = Test::new();
+        let mut test = WasmDecompressor::new();
         {
             let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
             memory[..compressed.len()].copy_from_slice(&compressed);
@@ -408,7 +414,7 @@ mod tests {
 
         println!();
         test.instance
-            .get_typed_func::<(), ()>(&test.store, "decompress").unwrap()
+            .get_typed_func::<(), i32>(&test.store, "decompress").unwrap()
             .call(&mut test.store, ()).unwrap();
 
         let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
@@ -423,7 +429,8 @@ mod tests {
 
     #[test]
     fn test_wasm_tiny_roundtrip() {
-        wasm_roundtrip(include_bytes!("../test-data/add.wasm"));
+        //wasm_roundtrip(include_bytes!("../test-data/add.wasm"));
+        wasm_roundtrip(include_bytes!("../../target/out/address0.wasm"));
     }
 
     #[test]

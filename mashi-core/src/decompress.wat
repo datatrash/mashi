@@ -1111,7 +1111,7 @@
                         )
                         ;; mem_arg_align
                         (if (call $dm_update_leb (local.get $byte)) (then
-                            (if (i64.gt_u (global.get $dm_leb_val) (i64.const 64)) (then
+                            (if (i64.ge_u (global.get $dm_leb_val) (i64.const 64)) (then
                                 (call $dm_write (i32.const 16))
                             ))
                             (call $dm_write (i32.const 17))
@@ -1580,7 +1580,7 @@
         )
     )
 
-    (func (export "decompress")
+    (func $decompress (export "decompress") (result i32)
         (local $i i32)
         (local $bit i32)
         (local $marker_bit i32)
@@ -1657,5 +1657,7 @@
                 br $decode_loop
             )
         )
+
+        (global.get $output_size)
     )
 )

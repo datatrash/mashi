@@ -7,10 +7,10 @@ license.workspace = true
 
 [dependencies]
 log = "0.4.29"
-wasmparser = "0.244.0"
+wasmi = { version = "1.0.8", features = ["simd"] }
+wasmparser = "0.245.0"
 
 [dev-dependencies]
 log4rs = "1.4.0"
 num-traits = "0.2.19"
-rand = "0.9.2"
-wasmi = { version = "1.0.8", features = ["simd"] }
+rand = "0.10.0"

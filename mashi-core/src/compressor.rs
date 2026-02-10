@@ -18,7 +18,7 @@ struct RangeEncoderState {
     bits_per_byte: Vec<f32>,
 }
 
-pub fn compress<F>(mut input: &[u8], mut f: F) -> (Vec<u8>, Vec<f32>)
+pub fn compress<F>(input: &[u8], mut f: F) -> (Vec<u8>, Vec<f32>)
 where
     F: FnMut(usize),
 {
@@ -179,7 +179,7 @@ struct RangeDecoderState<'a, I: Iterator<Item=&'a u8>> {
     range: u32,
 }
 
-pub fn decompress<F>(mut input: &[u8], mut f: F) -> (Vec<u8>, Model)
+pub fn decompress<F>(input: &[u8], mut f: F) -> (Vec<u8>, Model)
 where
     F: FnMut(usize),
 {
@@ -279,14 +279,4 @@ fn range_decode_bit<'a, I: Iterator<Item=&'a u8>>(state: &mut RangeDecoderState<
     }
 
     bit
-}
-
-trait F64ext {
-    fn log2(self) -> Self;
-}
-
-impl F64ext for f64 {
-    fn log2(self) -> Self {
-        unsafe { ::core::intrinsics::log2f64(self) }
-    }
 }
