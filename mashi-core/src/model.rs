@@ -1,5 +1,6 @@
 extern crate alloc;
 use crate::dis_model::{DisModel, NUM_DIS_MODEL_STATES};
+use crate::dis_model2::DisModel2;
 use alloc::alloc::{alloc_zeroed, dealloc};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -101,10 +102,10 @@ impl History {
     }
 
     pub fn update(&mut self, byte: u8) {
-        log::info!("{}", self.byte_history_pos);
+        log::trace!("{}", self.byte_history_pos);
         self.byte_history[self.byte_history_pos] = byte;
         self.byte_history_pos = (self.byte_history_pos + 1) & (HISTORY_BUFFER_LEN - 1);
-        log::info!("{}", self.byte_history_pos);
+        log::trace!("{}", self.byte_history_pos);
     }
 }
 
@@ -159,13 +160,13 @@ impl MatchModel {
         self.bit_position = 0;
 
         let history_pos = history.byte_history_pos - 1;
-        log::info!("{}", byte_mask);
-        log::info!("{}", history_pos);
+        log::trace!("{}", byte_mask);
+        log::trace!("{}", history_pos);
 
         if self.length == 0 {
             // We don't have a match currently; let's look for a new one
             self.offset = history_pos - self.index_buffer[self.history_hash as usize];
-            log::info!("{}", self.index_buffer[self.history_hash as usize]);
+            log::trace!("{}", self.index_buffer[self.history_hash as usize]);
             if (self.offset & (HISTORY_BUFFER_LEN - 1)) > 0 {
                 while self.length < 255
                     && history.get((history_pos as i32 - self.length as i32) as usize)
@@ -181,11 +182,11 @@ impl MatchModel {
 
         // Update index buffer for current history hash to point to the match we're tracking
         self.index_buffer[self.history_hash as usize] = history_pos;
-        log::info!("{}", self.length);
-        log::info!("{}", self.offset);
+        log::trace!("{}", self.length);
+        log::trace!("{}", self.offset);
 
         self.history_hash = history.hash(byte_mask) & ((INDEX_BUFFER_LEN - 1) as u32);
-        log::info!("{}", self.history_hash);
+        log::trace!("{}", self.history_hash);
     }
 }
 
@@ -231,9 +232,9 @@ impl Apm {
 
         self.index = (context as usize) * (APM_TAB_SIZE + 1) + ((prob >> 8) as usize);
         self.weight = prob & 0xff;
-        log::info!("{}", prob);
-        log::info!("{}", self.index);
-        log::info!("{}", self.weight);
+        log::trace!("{}", prob);
+        log::trace!("{}", self.index);
+        log::trace!("{}", self.weight);
         //print!("{} @@ {} @@ {} // ", prob, self.index, self.weight);
     }
 
@@ -256,8 +257,8 @@ impl Apm {
         let scaled_bit = (bit << 12) as i32;
         let mut entry = self.tab[index] as i32;
         entry += (scaled_bit - entry) >> self.adjust_rate;
-        log::info!("{index}");
-        log::info!("{entry}");
+        log::trace!("{index}");
+        log::trace!("{entry}");
         self.tab[index] = entry as _;
     }
 }
@@ -306,6 +307,7 @@ pub struct Model {
     histories: Vec<History>,
 
     dis_model: DisModel,
+    dis_model2: DisModel2,
     dis_model_state: u32,
 
     hash_table: *mut HashTableEntry,
@@ -376,6 +378,7 @@ impl Model {
             histories,
 
             dis_model: DisModel::new(),
+            dis_model2: DisModel2::new(),
             dis_model_state: 0,
 
             hash_table: unsafe { alloc_zeroed(hash_table_layout.clone()) } as *mut _,
@@ -411,8 +414,8 @@ impl Model {
         let dis_model_context = &mut self.dis_model_contexts[self.dis_model_state as usize];
 
         self.bit_history_hash = (1 << self.bit_index) | self.bit_history;
-        log::info!("{}", self.bit_index);
-        log::info!("{}", self.bit_history_hash);
+        log::trace!("{}", self.bit_index);
+        log::trace!("{}", self.bit_history_hash);
 
         let mut probs_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
         for i in 0..self.num_active_context_models {
@@ -451,15 +454,15 @@ impl Model {
             entry.checksum = checksum;
 
             self.context_model_hashes[i] = hash;
-            log::info!("{}", hash);
-            log::info!("{}", checksum);
+            log::trace!("{}", hash);
+            log::trace!("{}", checksum);
 
             // Indirect model
             let counts = entry.indirect_counts;
-            log::info!("{}", counts);
+            log::trace!("{}", counts);
             let indirect_prob_index = (i << 16) | (counts as usize);
             self.context_model_indirect_prob_indices[i] = indirect_prob_index;
-            log::info!("{}", indirect_prob_index);
+            log::trace!("{}", indirect_prob_index);
             let prediction = stretch((dis_model_context.indirect_probs[indirect_prob_index] as u32) >> 4, &self.stretch_tab);
 
             unsafe {
@@ -512,7 +515,7 @@ impl Model {
         let mut probs_print_ptr: *mut i16 = self.stage_1_probs.as_ptr() as *mut _;
         while probs_print_ptr != probs_ptr {
             unsafe {
-                log::info!("{:?}", *probs_print_ptr);
+                log::trace!("{:?}", *probs_print_ptr);
                 probs_print_ptr = probs_print_ptr.offset(1);
             }
         }
@@ -543,20 +546,20 @@ impl Model {
         // debug: print all stage_1_weights that were calculated
         for i in 0..8 {
             for j in 0..8 {
-                log::info!("{:?}", dis_model_context.stage_1_weights[(i * 256 + (self.stage_1_weight_contexts[i] as usize)) * NUM_MAX_MODEL_OUTPUTS / MIX_VECTOR_SIZE].as_array()[j]);
+                log::trace!("{:?}", dis_model_context.stage_1_weights[(i * 256 + (self.stage_1_weight_contexts[i] as usize)) * NUM_MAX_MODEL_OUTPUTS / MIX_VECTOR_SIZE].as_array()[j]);
             }
         }
         // debug: print all stage_1_weight_contexts that were calculated
         for i in 0..8 {
-            log::info!("{:?}", self.stage_1_weight_contexts[i]);
+            log::trace!("{:?}", self.stage_1_weight_contexts[i]);
         }
         // debug: print all stage_2_probs that were calculated
         for i in 0..8 {
-            log::info!("{:?}", self.stage_2_probs[0].as_array()[i]);
+            log::trace!("{:?}", self.stage_2_probs[0].as_array()[i]);
         }
 
         self.stage_2_prob = mix(&self.stage_2_probs, &dis_model_context.stage_2_weights, 8 / MIX_VECTOR_SIZE);
-        log::info!("{}", self.stage_2_prob);
+        log::trace!("{}", self.stage_2_prob);
 
         let mut prob = self.stage_2_prob;
         for i in 0..NUM_APM_STAGES {
@@ -576,19 +579,19 @@ impl Model {
             prob = 4096 - prob_margin;
         }
 
-        log::info!("{}", prob);
+        log::trace!("{}", prob);
         prob as _
     }
 
     // update assumes prob has been called _once_ for the current bit _before_ update has been called!
-    pub fn update(&mut self, bit: u32, is_in_code_section: bool) {
+    pub fn update(&mut self, bit: u32, is_in_code_section: bool, dis_model_2: bool) {
         let dis_model_context = &mut self.dis_model_contexts[self.dis_model_state as usize];
 
         // Update context models
         for i in 0..self.num_active_context_models {
             let hash = self.context_model_hashes[i];
             let entry = unsafe { &mut *self.hash_table.offset(hash as _) };
-            log::info!("{}", hash);
+            log::trace!("{}", hash);
 
             // Indirect model
             // Update indirect prob
@@ -596,8 +599,8 @@ impl Model {
             let mut indirect_prob = dis_model_context.indirect_probs[indirect_prob_index] as i32;
             indirect_prob += (((bit as i32) << 16) - indirect_prob) >> 6;
             dis_model_context.indirect_probs[indirect_prob_index] = indirect_prob as u16;
-            log::info!("{}", indirect_prob_index);
-            log::info!("{}", indirect_prob);
+            log::trace!("{}", indirect_prob_index);
+            log::trace!("{}", indirect_prob);
 
             // Update counts
             let counts = entry.indirect_counts;
@@ -624,7 +627,7 @@ impl Model {
             }
 
             entry.indirect_counts = ((last_bits << 13) | (bit << 12) | (counts_one << 6) | counts_zero) & 0xffff;
-            log::info!("{}", entry.indirect_counts);
+            log::trace!("{}", entry.indirect_counts);
 
             // Stationary model
             let counts = entry.stationary_counts as i32;
@@ -641,7 +644,7 @@ impl Model {
             }
 
             entry.stationary_counts = ((count << 22) | prob) as u32;
-            log::info!("{}", entry.stationary_counts);
+            log::trace!("{}", entry.stationary_counts);
 
             // Run model
             let mut count = entry.run_count as i32;
@@ -657,8 +660,8 @@ impl Model {
 
             entry.run_count = count as _;
             entry.run_symbol = bit as _;
-            log::info!("{}", entry.run_count);
-            log::info!("{}", entry.run_symbol);
+            log::trace!("{}", entry.run_count);
+            log::trace!("{}", entry.run_symbol);
         }
 
         // Update match models
@@ -692,8 +695,8 @@ impl Model {
             squash(self.stage_2_prob) as _,
         );
         for i in 0..8 {
-            log::info!("{}", self.stage_2_probs[0].to_array()[i]);
-            log::info!("{}", dis_model_context.stage_2_weights[0].as_array()[i]);
+            log::trace!("{}", self.stage_2_probs[0].to_array()[i]);
+            log::trace!("{}", dis_model_context.stage_2_weights[0].as_array()[i]);
         }
 
         for i in 0..NUM_APM_STAGES {
@@ -702,25 +705,33 @@ impl Model {
 
         self.bit_history = (self.bit_history << 1) | (bit as u8);
         self.bit_index += 1;
-        log::info!("{}", self.bit_history);
+        log::trace!("{}", self.bit_history);
 
         if self.bit_index == 8 {
             let byte = self.bit_history;
 
             self.histories[0].update(byte);
 
-            /*if self.dis_model_state > 0 {
+            if self.dis_model_state > 0 {
                 self.histories[self.dis_model_state as usize].update(byte);
             }
 
             if is_in_code_section {
+                if dis_model_2 {
+                    self.dis_model2.update(byte);
+                } else {
                 self.dis_model.update(byte);
-            }*/
+                }
+            }
 
             self.bit_history = 0;
             self.bit_index = 0;
 
-            self.dis_model_state = if is_in_code_section { 1 /*+ (self.dis_model.val())*/ } else { 0 };
+            if dis_model_2 {
+                self.dis_model_state = if is_in_code_section { 1 + (self.dis_model2.val()) } else { 0 };
+            } else {
+                self.dis_model_state = if is_in_code_section { 1 + (self.dis_model.val()) } else { 0 };
+            }
             self.num_active_context_models = if is_in_code_section {
                 NUM_MAX_ACTIVE_CONTEXT_MODELS
             } else {
@@ -733,18 +744,18 @@ impl Model {
             };
 
             // update active context models
-            log::info!("{}", 12345678);
-            log::info!("{}", self.num_active_context_models);
+            log::trace!("{}", 12345678);
+            log::trace!("{}", self.num_active_context_models);
             for i in 0..self.num_active_context_models {
-                log::info!("{}", i);
-                log::info!("{}", BYTE_MASKS[i % NUM_BASE_CONTEXT_MODELS]);
+                log::trace!("{}", i);
+                log::trace!("{}", BYTE_MASKS[i % NUM_BASE_CONTEXT_MODELS]);
                 let history_index = if i < NUM_MIN_ACTIVE_CONTEXT_MODELS { 0 } else { self.dis_model_state };
                 let mut hash = self.histories[history_index as usize].hash(BYTE_MASKS[i % NUM_BASE_CONTEXT_MODELS]);
-                log::info!("{}", history_index);
-                log::info!("{}", hash);
+                log::trace!("{}", history_index);
+                log::trace!("{}", hash);
                 fnv::hash_byte(&mut hash, self.dis_model_state as _);
                 fnv::hash_byte(&mut hash, 0x00); // Hash 0 byte to make room for bit history bits
-                log::info!("{}", self.context_model_byte_hashes[i]);
+                log::trace!("{}", self.context_model_byte_hashes[i]);
                 self.context_model_byte_hashes[i] = hash;
             }
 

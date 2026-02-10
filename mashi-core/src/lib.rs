@@ -3,11 +3,12 @@
 
 mod compressor;
 mod dis_model;
+mod dis_model2;
 mod model;
 
 pub use compressor::{compress, decompress};
 
-const DEBUG_LOG: bool = true;
+const DEBUG_LOG: bool = false;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
@@ -30,8 +31,27 @@ mod tests {
     use std::{fs, println, ptr, slice};
     use wasmi::{Caller, Engine, Linker, Module, Store};
 
+    fn init_log() {
+        if (DEBUG_LOG) {
+            let logfile = FileAppender::builder()
+                .append(false)
+                .encoder(Box::new(PatternEncoder::new("{m}\n")))
+                .build("log/rust.txt").unwrap();
+
+            let config = Config::builder()
+                .appender(Appender::builder().build("logfile", Box::new(logfile)))
+                .build(Root::builder()
+                    .appender("logfile")
+                    .build(LevelFilter::Info)).unwrap();
+
+            log4rs::init_config(config).unwrap();
+        }
+    }
+
     #[test]
     fn roundtrip() {
+        init_log();
+
         // just a roundtrip of the pure Rust implementation
         let src = include_bytes!("../test-data/test.wasm").to_vec();
         let (c, _) = compress(&src, |_| ());
@@ -291,7 +311,7 @@ mod tests {
                 }
                 //assert_eq!(rust_prob, wasm_prob, "Mismatch at {pos}");
 
-                model.update(bit as u32, false);
+                model.update(bit as u32, false, true);
                 test.model_update(bit, false);
             }
         }
@@ -371,20 +391,7 @@ mod tests {
     fn wasm_roundtrip(src: &[u8]) {
         let (compressed, _) = compress(&src, |_| ());
 
-        if (DEBUG_LOG) {
-            let logfile = FileAppender::builder()
-                .append(false)
-                .encoder(Box::new(PatternEncoder::new("{m}\n")))
-                .build("log/rust.txt").unwrap();
-
-            let config = Config::builder()
-                .appender(Appender::builder().build("logfile", Box::new(logfile)))
-                .build(Root::builder()
-                    .appender("logfile")
-                    .build(LevelFilter::Info)).unwrap();
-
-            log4rs::init_config(config).unwrap();
-        }
+        init_log();
 
         let (high_level_decompressed, model) = decompress(&compressed, |_| ());
         assert_eq!(&high_level_decompressed, &src);

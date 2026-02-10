@@ -1294,9 +1294,12 @@
         (if (i32.eq (global.get $bit_index) (i32.const 8))
             (then
                 (call $history_update (i32.const 0) (global.get $bit_history))
+                (if (global.get $dis_model_state) (then
+                    (call $history_update (global.get $dis_model_state) (global.get $bit_history))
+                ))
+
                 (global.set $bit_history (i32.const 0))
                 (global.set $bit_index (i32.const 0))
-
                 (global.set $dis_model_state
                     (select (i32.const 1) (i32.const 0) (local.get $is_in_code_section))
                 )
