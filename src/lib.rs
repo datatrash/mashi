@@ -27,7 +27,7 @@ where
     }
 
     let size = test.instance
-        .get_typed_func::<(), i32>(&test.store, "decompress").unwrap()
+        .get_typed_func::<(), i32>(&test.store, "d").unwrap()
         .call(&mut test.store, ()).unwrap() as usize;
 
     let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
@@ -420,7 +420,7 @@ mod tests {
 
         println!();
         test.instance
-            .get_typed_func::<(), i32>(&test.store, "decompress").unwrap()
+            .get_typed_func::<(), i32>(&test.store, "d").unwrap()
             .call(&mut test.store, ()).unwrap();
 
         let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);

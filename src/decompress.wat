@@ -1,9 +1,10 @@
 (module
-    (import "host" "l_i32" (func $l_i32 (param i32)))
-    (import "host" "l_dm" (func $l_dm (param i32) (param i32) (param i32) (param i32) (param i32)))
-    (import "host" "l_u32" (func $l_u32 (param i32)))
-    (import "host" "l_x32" (func $l_x32 (param i32)))
-    (import "host" "l_sep" (func $l_sep))
+    ;; varous logging imports that can be used during development
+    ;;(import "host" "l_i32" (func $l_i32 (param i32)))
+    ;;(import "host" "l_dm" (func $l_dm (param i32) (param i32) (param i32) (param i32) (param i32)))
+    ;;(import "host" "l_u32" (func $l_u32 (param i32)))
+    ;;(import "host" "l_x32" (func $l_x32 (param i32)))
+    ;;(import "host" "l_sep" (func $l_sep))
 
     (global $src_ptr (mut i32) (i32.const 0))
     (global $code_section_start (mut i32) (i32.const 0))
@@ -1044,7 +1045,7 @@
         (local $should_remain i32)
 
         (local.set $state (call $dm_val))
-        (call $l_dm (local.get $state) (global.get $dm_opcode) (local.get $byte) (global.get $dm_read_pos) (global.get $dm_write_pos))
+        ;;(call $l_dm (local.get $state) (global.get $dm_opcode) (local.get $byte) (global.get $dm_read_pos) (global.get $dm_write_pos))
 
         (block $done
             (block $opcode
@@ -1584,7 +1585,7 @@
         )
     )
 
-    (func $decompress (export "decompress") (result i32)
+    (func $decompress (export "d") (result i32)
         (local $i i32)
         (local $bit i32)
         (local $marker_bit i32)

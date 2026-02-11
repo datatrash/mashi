@@ -13,6 +13,11 @@ log = "0.4.29"
 wasmi = { version = "1.0.9", features = ["simd"] }
 wasmparser = "0.245.0"
 
+[build-dependencies]
+anyhow = "1.0.101"
+duct = "1.1.1"
+zopfli = "0.8.3"
+
 [dev-dependencies]
 log4rs = "1.4.0"
 num-traits = "0.2.19"
