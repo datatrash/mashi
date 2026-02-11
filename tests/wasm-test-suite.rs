@@ -1,11 +1,11 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use mashi_core::{compress, wasm_decompress};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use wast::parser::ParseBuffer;
 use wast::{parser, Wast, WastDirective};
+use mashi::{compress, wasm_decompress};
 
 /// Mashi Test Suite runner, runs as many WAST tests from the official test suite through a
 /// compression and decompression roundtrip to make sure Mashi doesn't mangle anything in the process.
@@ -19,10 +19,11 @@ struct Cli {
     module_index: Option<usize>,
 }
 
-fn main() -> anyhow::Result<()> {
+#[test]
+fn wasm_test_suite() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let suite_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("wasm-test-suite");
+    let suite_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/wasm-test-suite");
     let mut wast_files = fs::read_dir(suite_path)?
         .filter(|entry| {
             match entry {
@@ -37,6 +38,7 @@ fn main() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
     wast_files.sort();
 
+    let mut failed = vec![];
     let mut is_skipping_files = cli.filename.is_some();
     for wast_file in wast_files {
         let mut should_select_module = false;
@@ -79,11 +81,11 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
 
-            let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/out");
+            let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/out");
             if !fs::exists(&target)? {
                 fs::create_dir(&target)?;
             }
-            let binary_path = target.join(wast_file.with_extension("wasm").file_name().unwrap());
+            let binary_path = target.join(wast_file.join(PathBuf::from(format!("-{}", idx + 1))).with_extension("wasm").file_name().unwrap());
             fs::write(binary_path, binary)?;
 
             let prefix = format!("{:>40} [{:>3}/{:>3}]: ", wast_file.file_name().unwrap().display(), idx + 1, binaries.len());
@@ -102,8 +104,16 @@ fn main() -> anyhow::Result<()> {
             if result {
                 p.finish_with_message("OK");
             } else {
+                failed.push((wast_file.clone(), idx + 1));
                 p.finish_with_message("FAIL");
             }
+        }
+    }
+
+    if !failed.is_empty() {
+        println!("There were test failures:");
+        for (file, idx) in failed {
+            println!("\t{}: {}", file.display(), idx);
         }
     }
 

@@ -1141,6 +1141,7 @@
                              (then
                                 (call $dm_write (i32.const 11))
                                 (call $dm_write (i32.const 12))
+                                br $done
                         ))
                         (if
                             (i32.or
@@ -1150,6 +1151,7 @@
                              (then
                                 (call $dm_write (i32.const 24))
                                 (call $dm_write (i32.const 24))
+                                br $done
                         ))
                         (if (i32.and (i32.ge_u (local.get $byte) (i32.const 0x09)) (i32.le_u (local.get $byte) (i32.const 0x12)))
                              (then
@@ -1270,6 +1272,11 @@
                 )
                  (then
                     (call $dm_write (i32.const 21))
+            ))
+            (if
+                (i32.and (i32.ge_u (local.get $byte) (i32.const 0xfc)) (i32.le_u (local.get $byte) (i32.const 0xfe)))
+                 (then
+                    (call $dm_write (i32.const 1))
             ))
         )
 

@@ -42,7 +42,7 @@ struct WasmDecompressor {
 #[allow(unused)]
 impl WasmDecompressor {
     fn new() -> Self {
-        let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("log");
+        let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/log");
         if DEBUG_LOG {
             if !fs::exists(&log_path).unwrap() {
                 fs::create_dir(&log_path).unwrap();
@@ -177,7 +177,7 @@ mod tests {
             let logfile = FileAppender::builder()
                 .append(false)
                 .encoder(Box::new(PatternEncoder::new("{m}\n")))
-                .build("log/rust.txt").unwrap();
+                .build("target/log/rust.txt").unwrap();
 
             let config = Config::builder()
                 .appender(Appender::builder().build("logfile", Box::new(logfile)))
@@ -194,7 +194,7 @@ mod tests {
         init_log();
 
         // just a roundtrip of the pure Rust implementation
-        let src = include_bytes!("../test-data/test.wasm").to_vec();
+        let src = include_bytes!("../tests/data/test.wasm").to_vec();
         let (c, _) = compress(&src, |_| ());
         println!("From {} to {}", src.len(), c.len());
         let (out, _) = decompress(&c, |_| ());
@@ -435,13 +435,12 @@ mod tests {
 
     #[test]
     fn test_wasm_tiny_roundtrip() {
-        //wasm_roundtrip(include_bytes!("../test-data/add.wasm"));
-        wasm_roundtrip(include_bytes!("../../target/out/address0.wasm"));
+        wasm_roundtrip(include_bytes!("../tests/data/add.wasm"));
     }
 
     #[test]
     fn test_wasm_full_roundtrip() {
-        wasm_roundtrip(include_bytes!("../test-data/test.wasm"));
+        wasm_roundtrip(include_bytes!("../tests/data/test.wasm"));
     }
 
     fn print_tab<T>(tab: &[T], items_per_line: usize) where T: ToBytes {

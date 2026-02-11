@@ -1,3 +1,3 @@
-[submodule "mashi-test-suite/wasm-test-suite"]
-	path = mashi-test-suite/wasm-test-suite
+[submodule "wasm-test-suite"]
+	path = tests/wasm-test-suite
 	url = https://github.com/WebAssembly/testsuite.git

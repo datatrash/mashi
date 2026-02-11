@@ -1,11 +1,6 @@
-extern crate alloc;
+use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::simd::prelude::*;
 use crate::dis_model::{DisModel, NUM_DIS_MODEL_STATES};
-use alloc::alloc::{alloc_zeroed, dealloc};
-use alloc::vec;
-use alloc::vec::Vec;
-use core::alloc::Layout;
-use core::mem::size_of;
-use core::simd::prelude::*;
 
 const NUM_BASE_CONTEXT_MODELS: usize = 21;
 pub const BYTE_MASKS: &[u8; NUM_BASE_CONTEXT_MODELS] = &[0, 1, 3, 17, 128, 2, 4, 5, 53, 76, 33, 7, 15, 6, 136, 193, 224, 243, 8, 9, 26];
