@@ -1,16 +1,13 @@
-use std::{fs, io};
+use indicatif::{ProgressBar, ProgressStyle};
+use mashi::compress;
 use std::io::Write;
 use std::path::PathBuf;
-use indicatif::{ProgressBar, ProgressStyle};
-use wasm_encoder::{ConstExpr, DataSection};
+use std::{fs, io};
 use wasm_encoder::reencode::{Reencode, RoundtripReencoder};
+use wasm_encoder::{ConstExpr, DataSection};
 use wasmparser::Payload;
 use zopfli::{Format, Options};
-use mashi::compress;
 
-/// Re-encode `input` 1:1 but *replace* the existing data section with
-/// a new one that contains the original segments plus one extra active
-/// segment at `offset` in memory `mem_index`.
 pub fn add_bytes_into_existing_data_section(
     input: &[u8],
     bytes: &[u8],
@@ -138,35 +135,32 @@ pub fn pack(wasm_filename: Option<PathBuf>, js_filename: PathBuf, output_filenam
         p.set_position(progress as u64);
     });
     p.finish_with_message("Done!");
-    //println!("{output_filename}");
 
     // Create a new WASM module that has the compressed data already inserted in its memory
-    let js_depacker: &[u8] = include_bytes!("depacker.js");
+    let js_depacker: &[u8] = include_bytes!("../../target/depacker.js.min");
     let decompressor = add_bytes_into_existing_data_section(include_bytes!("../../target/decompress.wasm"), &compressed_data)?;
 
     let mut bundle = vec![];
     bundle.extend(js_depacker);
     bundle.extend(&decompressor);
 
-    println!("js_depacker: {}", js_depacker.len());
-    println!("decompressor: {}", decompressor.len());
-
     // Zopflify it
     print!("Zopfli... ");
     io::stdout().flush()?;
     let mut deflated = vec![];
     zopfli::compress(Options {
-        //iteration_count: std::num::NonZero::new(1000).unwrap(),
+        iteration_count: std::num::NonZero::new(1000).unwrap(),
         ..Default::default()
     }, Format::Deflate, &*bundle, &mut deflated)?;
     println!("Done!");
 
     let header = include_str!("header.html");
     let header = header.replace("@@@", &header.len().to_string());
-    let mut output = fs::File::create(output_filename)?;
+    let header = header.replace("%%%", &js_depacker.len().to_string());
+    let mut output = fs::File::create(&output_filename)?;
     output.write_all(header.as_bytes())?;
     output.write_all(&deflated)?;
-    println!("Wrote {} bytes", console::style(output.metadata()?.len()).green());
+    println!("Wrote {} bytes to: {}", console::style(output.metadata()?.len()).green(), output_filename.display());
 
     Ok(())
 }

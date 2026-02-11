@@ -1,1 +1,1 @@
-<svg onload="fetch`#`.then(t=>t.blob()).then(t=>new Response(t.slice(@@@).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text()).then(t=>eval(t)(t.bytes()))">
+<svg onload="fetch`#`.then(t=>t.blob()).then(t=>new Response(t.slice(@@@).stream().pipeThrough(new DecompressionStream('deflate-raw')))).then(t=>Promise.all([t.clone().text(),t.bytes()])).then(t=>new Function(t[0].slice(0,%%%))(t[1].slice(%%%)))">

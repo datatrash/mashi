@@ -1,5 +1,5 @@
-use std::fs;
 use duct::cmd;
+use std::fs;
 
 fn main() -> anyhow::Result<()> {
     shadow_rs::ShadowBuilder::builder().build()?;
@@ -16,6 +16,9 @@ fn main() -> anyhow::Result<()> {
 "#)?;
     cmd!("wasm-metadce", "--enable-bulk-memory-opt", "--enable-simd", "target/decompress.wasm", "--graph-file", "target/decompress.jsonlike", "-o", "target/decompress.wasm").run()?;
     cmd!("wasm-opt", "--enable-bulk-memory-opt", "--enable-simd", "target/decompress.wasm", "-Oz", "-o", "target/decompress.wasm").run()?;
+
+    println!("cargo::rerun-if-changed=src/cli/depacker.js");
+    cmd!("bun", "build", "src/cli/depacker.js", "--minify", "--outfile=target/depacker.js.min").run()?;
 
     Ok(())
 }
