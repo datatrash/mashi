@@ -1,7 +1,8 @@
-use std::fs;
 use clap::{Parser, Subcommand};
 use shadow_rs::shadow;
-use mashi::compress;
+use std::path::PathBuf;
+
+mod cli;
 
 shadow!(build);
 
@@ -16,37 +17,30 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Pack a JS file into an index.html file, with an optional WASM payload
+    /// Pack a JS file into an index.html file, with an optional WASM binary to be passed into the JS code
     Pack {
         /// The filename of the Javascript file to include
-        js_filename: String,
+        #[arg(value_hint = clap::ValueHint::FilePath)]
+        js_filename: PathBuf,
 
         /// The filename of the WASM binary to include
-        wasm_filename: Option<String>,
+        #[arg(long = "wasm", value_hint = clap::ValueHint::FilePath)]
+        wasm_filename: Option<PathBuf>,
 
         /// Output filename
         #[arg(default_value = "index.html")]
-        output_filename: String,
+        output_filename: PathBuf,
     }
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
+    match cli.command {
         Commands::Pack {
             wasm_filename, js_filename, output_filename
         } => {
-            let js_input = fs::read(&js_filename)?;
-            let wasm_input = match wasm_filename {
-                Some(filename) => fs::read(&filename)?,
-                None => vec![]
-            };
-
-            compress(&js_input, &wasm_input, |progress| {
-                println!("{progress}");
-            });
-            println!("{output_filename}");
+            cli::pack(wasm_filename, js_filename, output_filename)?;
         }
     }
 

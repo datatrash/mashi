@@ -54,7 +54,7 @@
         "\fe\0f\00\00"
     )
     ;; byte_history_pos = 0x00f1000
-    ;; depack to 0x1000000..0x3000000, so maybe shift everything when we need less memory, meh
+    ;; depack to 0x0100000..0x0800000, so maybe shift everything when we need less memory, meh
     ;; for every different dis_model_state (max 32 of them for now, increase this if we have more than DisModelStates + 1):
     ;;;; apm_indices = 0x0f02000
     ;;;; apm_weights = 0x0f03000

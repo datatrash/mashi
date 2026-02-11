@@ -725,6 +725,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "console",
  "duct",
  "indicatif",
  "log",
@@ -732,6 +733,7 @@ dependencies = [
  "num-traits",
  "rand 0.10.0",
  "shadow-rs",
+ "wasm-encoder 0.245.0",
  "wasmi",
  "wasmparser 0.245.0",
  "wast 245.0.0",
