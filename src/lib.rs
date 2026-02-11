@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::{fs, mem};
 use wasmi::*;
 
-const DEBUG_LOG: bool = true;
+const DEBUG_LOG: bool = false;
 
 pub fn wasm_decompress<F>(compressed: &[u8], mut _f: F) -> Vec<u8>
 where

@@ -113,7 +113,7 @@ impl DisModel {
                         }
                     }
 
-                    0xc | 0xd | 0xd5 | 0xd6 => {
+                    0xc | 0xd => {
                         self.write(DisModelState::LabelIdx);
                     }
 
@@ -154,7 +154,7 @@ impl DisModel {
                     }
 
                     0xd0 => self.write(DisModelState::MiscLeb),
-                    0xd2 => self.write(DisModelState::FuncIdx), // 0xd5 and 0xd6 should maybe be FuncIdx too?
+                    0xd2 | 0xd5 | 0xd6 => self.write(DisModelState::FuncIdx),
 
                     0xfc | 0xfd | 0xfe => {
                         self.write(DisModelState::PrefixedOpcode);

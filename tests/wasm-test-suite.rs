@@ -85,7 +85,7 @@ fn wasm_test_suite() -> anyhow::Result<()> {
             if !fs::exists(&target)? {
                 fs::create_dir(&target)?;
             }
-            let binary_path = target.join(wast_file.join(PathBuf::from(format!("-{}", idx + 1))).with_extension("wasm").file_name().unwrap());
+            let binary_path = target.join(PathBuf::from(format!("{}-{}.wasm", wast_file.file_stem().unwrap().display(), idx + 1)));
             fs::write(binary_path, binary)?;
 
             let prefix = format!("{:>40} [{:>3}/{:>3}]: ", wast_file.file_name().unwrap().display(), idx + 1, binaries.len());
