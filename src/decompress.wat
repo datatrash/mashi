@@ -9,6 +9,8 @@
     (global $src_ptr (mut i32) (i32.const 0))
     (global $code_section_start (mut i32) (i32.const 0))
     (global $code_section_end (mut i32) (i32.const 0))
+    (global $js_output_size (mut i32) (i32.const 0))
+    (global $wasm_output_size (mut i32) (i32.const 0))
     (global $output_size (mut i32) (i32.const 0))
     (global $byte_index (mut i32) (i32.const 0))
 
@@ -1585,7 +1587,7 @@
         )
     )
 
-    (func $decompress (export "d") (result i32)
+    (func $decompress (export "d")
         (local $i i32)
         (local $bit i32)
         (local $marker_bit i32)
@@ -1594,9 +1596,10 @@
 
         (global.set $code_section_start (i32.load (global.get $src_ptr)))
         (global.set $code_section_end (i32.load offset=4 (global.get $src_ptr)))
-        (global.set $output_size (i32.load offset=8 (global.get $src_ptr)))
-        ;;(global.set $output_size (i32.const 5)) ;; hack
-        (global.set $src_ptr (i32.const 12))
+        (global.set $js_output_size (i32.load offset=8 (global.get $src_ptr)))
+        (global.set $wasm_output_size (i32.load offset=12 (global.get $src_ptr)))
+        (global.set $output_size (i32.add (global.get $js_output_size) (global.get $wasm_output_size)))
+        (global.set $src_ptr (i32.const 16))
 
         (call $model_init)
 
@@ -1607,8 +1610,8 @@
             (global.set $rd_code)
             (global.set $src_ptr (i32.add (global.get $src_ptr) (i32.const 1)))
 
-            ;; break when we read 4 bytes (and src_ptr is at 16)
-            (i32.lt_s (global.get $src_ptr) (i32.const 16))
+            ;; break when we read 4 bytes (and src_ptr is at 20)
+            (i32.lt_s (global.get $src_ptr) (i32.const 20))
             (br_if $rd_init_loop)
         )
 
@@ -1662,7 +1665,5 @@
                 br $decode_loop
             )
         )
-
-        (global.get $output_size)
     )
 )

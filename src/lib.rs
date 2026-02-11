@@ -26,12 +26,15 @@ where
         memory[..compressed.len()].copy_from_slice(&compressed);
     }
 
-    let size = test.instance
-        .get_typed_func::<(), i32>(&test.store, "d").unwrap()
+    test.instance
+        .get_typed_func::<(), i64>(&test.store, "d").unwrap()
         .call(&mut test.store, ()).unwrap() as usize;
 
+    let mut arr = [0u8; 4];
+    arr.copy_from_slice(&compressed[8..12]);
+    let uncompressed_wasm_size = u32::from_le_bytes(arr) as usize;
     let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
-    memory[1024 * 1024..1024 * 1024 + size].to_vec()
+    memory[1024 * 1024..1024 * 1024 + uncompressed_wasm_size].to_vec()
 }
 
 struct WasmDecompressor {
@@ -195,7 +198,7 @@ mod tests {
 
         // just a roundtrip of the pure Rust implementation
         let src = include_bytes!("../tests/data/test.wasm").to_vec();
-        let (c, _) = compress(&src, |_| ());
+        let (c, _) = compress(&[], &src, |_| ());
         println!("From {} to {}", src.len(), c.len());
         let (out, _) = decompress(&c, |_| ());
         assert_eq!(src, out);
@@ -405,7 +408,7 @@ mod tests {
     }
 
     fn wasm_roundtrip(src: &[u8]) {
-        let (compressed, _) = compress(&src, |_| ());
+        let (compressed, _) = compress(&[], &src, |_| ());
 
         init_log();
 
@@ -420,7 +423,7 @@ mod tests {
 
         println!();
         test.instance
-            .get_typed_func::<(), i32>(&test.store, "d").unwrap()
+            .get_typed_func::<(), ()>(&test.store, "d").unwrap()
             .call(&mut test.store, ()).unwrap();
 
         let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);

@@ -5,17 +5,24 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
+[[bin]]
+name = "mashi"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0.101"
 clap = { version = "4.5.57", features = ["derive"] }
 indicatif = "0.18.3"
 log = "0.4.29"
+shadow-rs = { version = "1.7.0", default-features = false }
 wasmi = { version = "1.0.9", features = ["simd"] }
 wasmparser = "0.245.0"
+zopfli = "0.8.3"
 
 [build-dependencies]
 anyhow = "1.0.101"
 duct = "1.1.1"
+shadow-rs = "1.7.0"
 zopfli = "0.8.3"
 
 [dev-dependencies]

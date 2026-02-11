@@ -92,7 +92,7 @@ fn wasm_test_suite() -> anyhow::Result<()> {
             let p = ProgressBar::new(binary.len() as u64).with_prefix(prefix);
             p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.cyan/blue} {pos:>7}/{len:7}] {msg}")?
                 .progress_chars("##-"));
-            let (compressed, _) = compress(&binary, |pos| {
+            let (compressed, _) = compress(&[], &binary, |pos| {
                 p.set_position(pos as u64);
             });
             p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.green/red} {pos:>7}/{len:7}] {msg}")?

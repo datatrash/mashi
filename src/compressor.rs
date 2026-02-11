@@ -18,23 +18,35 @@ struct RangeEncoderState {
     bits_per_byte: Vec<f32>,
 }
 
-pub fn compress<F>(input: &[u8], mut f: F) -> (Vec<u8>, Vec<f32>)
+pub fn compress<F>(js_input: &[u8], wasm_input: &[u8], mut f: F) -> (Vec<u8>, Vec<f32>)
 where
     F: FnMut(usize),
 {
     use wasmparser::Payload::CodeSectionStart;
     use wasmparser::Parser;
     let mut code_section = 0u64..0u64;
-    let parser = Parser::new(0);
-    for payload in parser.parse_all(&input) {
-        match payload.unwrap() {
-            CodeSectionStart { range, .. } => {
-                code_section.start = range.start as u64;
-                code_section.end = range.end as u64;
+    if !wasm_input.is_empty() {
+        let parser = Parser::new(0);
+        for payload in parser.parse_all(&wasm_input) {
+            match payload.unwrap() {
+                CodeSectionStart { range, .. } => {
+                    code_section.start = range.start as u64;
+                    code_section.end = range.end as u64;
+                }
+                _ => ()
             }
-            _ => ()
+        }
+        
+        if code_section.start == 0 {
+            println!("Warning: the provided WASM binary doesn't seem to have a code section");
         }
     }
+
+    let mut input: Vec<u8> = vec![];
+    input.extend(js_input);
+    input.extend(wasm_input);
+    code_section.start += js_input.len() as u64;
+    code_section.end += js_input.len() as u64;
 
     let mut model = Model::new();
     let mut state = RangeEncoderState {
@@ -53,7 +65,8 @@ where
     state.output.extend((code_section.start as u32).to_le_bytes());
     state.output.extend((code_section.end as u32).to_le_bytes());
 
-    // leave output size empty for now
+    // leave output sizes empty for now
+    state.output.extend(0u32.to_le_bytes());
     state.output.extend(0u32.to_le_bytes());
 
     let mut marker_bit_prob = 2048;
@@ -130,7 +143,8 @@ where
 
     f(input_len);
 
-    state.output.as_mut_slice()[8..12].copy_from_slice(&(input_len as u32).to_le_bytes());
+    state.output.as_mut_slice()[8..12].copy_from_slice(&(js_input.len() as u32).to_le_bytes());
+    state.output.as_mut_slice()[12..16].copy_from_slice(&(wasm_input.len() as u32).to_le_bytes());
 
     (state.output, state.bits_per_byte)
 }
@@ -189,11 +203,14 @@ where
     arr.copy_from_slice(&input[4..8]);
     let code_section_end = u32::from_le_bytes(arr) as u64;
     arr.copy_from_slice(&input[8..12]);
-    let output_size = u32::from_le_bytes(arr) as usize;
-    //let output_size = 5;
+    let js_output_size = u32::from_le_bytes(arr) as usize;
+    arr.copy_from_slice(&input[12..16]);
+    let wasm_output_size = u32::from_le_bytes(arr) as usize;
     let code_section = code_section_start..code_section_end;
 
-    let input = &input[12..];
+    let output_size = js_output_size + wasm_output_size;
+
+    let input = &input[16..];
 
     let mut model = Model::new();
     let mut state = RangeDecoderState {
@@ -238,10 +255,7 @@ where
 
         let is_in_code_section = (byte_index as u64) >= code_section.start && (byte_index as u64) < code_section.end;
         for _ in 0..8 {
-            log::trace!("=============================================================================");
             let bit = range_decode_bit(&mut state, model.prob());
-            log::trace!("{bit}");
-            log::trace!("=============================================================================");
 
             model.update(bit, is_in_code_section);
 

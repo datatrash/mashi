@@ -4,6 +4,8 @@ use duct::cmd;
 use zopfli::{Format, Options};
 
 fn main() -> anyhow::Result<()> {
+    shadow_rs::ShadowBuilder::builder().build().unwrap();
+    
     println!("cargo::rerun-if-changed=src/decompress.wat");
     cmd!("wasm-as", "--enable-bulk-memory-opt", "--enable-simd", "src/decompress.wat", "-o", "target/decompress.wasm").run()?;
 
