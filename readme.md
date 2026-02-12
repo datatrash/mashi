@@ -37,5 +37,5 @@ The decompression stub is written in pure WASM and takes about 2.5k.
 
 ### Credits
 
-* The compression model is based on the Squishy compressor by [Ferris](http://github.com/yupferris).
+* The compression model is based on the Squishy compressor by [Ferris](https://github.com/yupferris).
 * Other work (WASM context modelling, tooling, etc) by [Sagacity](https://github.com/sagacity).
