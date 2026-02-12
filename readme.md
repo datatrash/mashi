@@ -2,7 +2,7 @@
 
 Mashi is a Javascript+WASM compressor for use in 64k intros.
 
-The compression engine is based on Squishy by Ferris/Logicoma. However, specific WASM context models have been added to improve the compression ratio of WASM payloads.
+The compression engine is based on Squishy by Ferris/Logicoma. Specific WASM context models have been added to improve the compression ratio of WASM payloads.
 
 However, Mashi can also be used for JS-only productions.
 
@@ -16,7 +16,7 @@ if you have an `intro.js` which should receive the bytes in `intro.wasm` as an a
 
 `mashi pack intro.js --wasm intro.wasm out.html`
 
-The resulting `index.html` can be opened in a browser (with local file access enabled) and will automatically invoke
+The resulting `out.html` can be opened in a browser (with local file access enabled) and will automatically invoke
 your Javascript code, passing in the decompressed WASM binary as a parameter. You can then instantiate the WASM module
 from your code and off you go.
 
