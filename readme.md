@@ -25,6 +25,8 @@ from your code and off you go.
 This is a very early release, so beware. Having said that, all files in the official WebAssembly Test Suite can be
 successfully compressed and decompressed without Mashi eating any bytes.
 
+MacOS and Linux binaries are untested currently, as are browsers other than Chrome. Feel free to test and report back!
+
 The decompression stub is written in pure WASM and takes about 2.5k.
 
 ### How to hack
