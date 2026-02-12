@@ -137,8 +137,8 @@ pub fn pack(wasm_filename: Option<PathBuf>, js_filename: PathBuf, output_filenam
     p.finish_with_message("Done!");
 
     // Create a new WASM module that has the compressed data already inserted in its memory
-    let js_depacker: &[u8] = include_bytes!("../../target/depacker.js.min");
-    let decompressor = add_bytes_into_existing_data_section(include_bytes!("../../target/decompress.wasm"), &compressed_data)?;
+    let js_depacker: &[u8] = include_bytes!("../../generated/depacker.js.min");
+    let decompressor = add_bytes_into_existing_data_section(include_bytes!("../../generated/decompress.wasm"), &compressed_data)?;
 
     let mut bundle = vec![];
     bundle.extend(js_depacker);
