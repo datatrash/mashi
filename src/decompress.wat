@@ -14,6 +14,9 @@
     (global $output_size (mut i32) (i32.const 0))
     (global $byte_index (mut i32) (i32.const 0))
 
+    (global $marker_bit (mut i32) (i32.const 0))
+    (global $marker_bit_prob (mut i32) (i32.const 0))
+
     ;; range decoder state
     (global $rd_code (mut i32) (i32.const 0))
     (global $rd_range (mut i32) (i32.const -1))
@@ -1587,33 +1590,35 @@
         )
     )
 
-    (func $decompress (export "d")
+    (func $decompress_step (export "d") (result f32)
         (local $i i32)
         (local $bit i32)
-        (local $marker_bit i32)
-        (local $marker_bit_prob i32)
-        (local.set $marker_bit_prob (i32.const 2048))
 
-        (global.set $code_section_start (i32.load (global.get $src_ptr)))
-        (global.set $code_section_end (i32.load offset=4 (global.get $src_ptr)))
-        (global.set $js_output_size (i32.load offset=8 (global.get $src_ptr)))
-        (global.set $wasm_output_size (i32.load offset=12 (global.get $src_ptr)))
-        (global.set $output_size (i32.add (global.get $js_output_size) (global.get $wasm_output_size)))
-        (global.set $src_ptr (i32.const 16))
+        (if (i32.eqz (global.get $byte_index)) (then
+            ;; first step, so let's initialize everything
+            (global.set $marker_bit_prob (i32.const 2048))
 
-        (call $model_init)
+            (global.set $code_section_start (i32.load (global.get $src_ptr)))
+            (global.set $code_section_end (i32.load offset=4 (global.get $src_ptr)))
+            (global.set $js_output_size (i32.load offset=8 (global.get $src_ptr)))
+            (global.set $wasm_output_size (i32.load offset=12 (global.get $src_ptr)))
+            (global.set $output_size (i32.add (global.get $js_output_size) (global.get $wasm_output_size)))
+            (global.set $src_ptr (i32.const 16))
 
-        (loop $rd_init_loop
-            (global.get $rd_code)
-            (i32.shl (i32.const 8))
-            (i32.or (i32.load8_u (global.get $src_ptr)))
-            (global.set $rd_code)
-            (global.set $src_ptr (i32.add (global.get $src_ptr) (i32.const 1)))
+            (call $model_init)
 
-            ;; break when we read 4 bytes (and src_ptr is at 20)
-            (i32.lt_s (global.get $src_ptr) (i32.const 20))
-            (br_if $rd_init_loop)
-        )
+            (loop $rd_init_loop
+                (global.get $rd_code)
+                (i32.shl (i32.const 8))
+                (i32.or (i32.load8_u (global.get $src_ptr)))
+                (global.set $rd_code)
+                (global.set $src_ptr (i32.add (global.get $src_ptr) (i32.const 1)))
+
+                ;; break when we read 4 bytes (and src_ptr is at 20)
+                (i32.lt_s (global.get $src_ptr) (i32.const 20))
+                (br_if $rd_init_loop)
+            )
+        ))
 
         (block $decode_loop_end
             (loop $decode_loop
@@ -1622,13 +1627,13 @@
 
                 (i32.and (global.get $byte_index) (i32.const 0x1fff)) ;; 0x1fff = BLOCK_MASK
                 (if (then) (else
-                    (local.set $marker_bit (call $range_decode_bit (local.get $marker_bit_prob)))
+                    (global.set $marker_bit (call $range_decode_bit (global.get $marker_bit_prob)))
 
-                    (local.set $marker_bit_prob
+                    (global.set $marker_bit_prob
                         (i32.shr_u
                             (i32.add
-                                (local.get $marker_bit_prob)
-                                (if (result i32) (i32.eq (local.get $marker_bit) (i32.const 0))
+                                (global.get $marker_bit_prob)
+                                (if (result i32) (i32.eq (global.get $marker_bit) (i32.const 0))
                                     (then (i32.const 1))
                                     (else (i32.const 4095))
                                 )
@@ -1637,7 +1642,7 @@
                         )
                     )
 
-                    (if (i32.eq (local.get $marker_bit) (i32.const 0)) (then
+                    (if (i32.eq (global.get $marker_bit) (i32.const 0)) (then
                         (global.set $byte_index (i32.add (global.get $byte_index) (i32.const 0x2000))) ;; skip block_size
                         br $decode_loop
                     ))
@@ -1662,8 +1667,23 @@
                 )
 
                 (global.set $byte_index (i32.add (global.get $byte_index) (i32.const 1)))
+
+                (if (i32.eq (i32.and (global.get $byte_index) (i32.const 0xfff)) (i32.const 0xfff)) (then
+                    ;; break to allow progressbar to update
+                    (return (f32.div (f32.convert_i32_u (global.get $byte_index)) (f32.convert_i32_u (global.get $output_size))))
+                ))
+
                 br $decode_loop
             )
+        )
+
+        ;; fully done!
+        (f32.const 0)
+    )
+
+    (func $decompress (export "decompress")
+        (loop $decompress_loop
+            (br_if $decompress_loop (f32.ne (call $decompress_step) (f32.const 0)))
         )
     )
 )

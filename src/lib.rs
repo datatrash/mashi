@@ -27,7 +27,7 @@ where
     }
 
     test.instance
-        .get_typed_func::<(), i64>(&test.store, "d").unwrap()
+        .get_typed_func::<(), i64>(&test.store, "decompress").unwrap()
         .call(&mut test.store, ()).unwrap() as usize;
 
     let mut arr = [0u8; 4];
@@ -423,7 +423,7 @@ mod tests {
 
         println!();
         test.instance
-            .get_typed_func::<(), ()>(&test.store, "d").unwrap()
+            .get_typed_func::<(), ()>(&test.store, "decompress").unwrap()
             .call(&mut test.store, ()).unwrap();
 
         let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
