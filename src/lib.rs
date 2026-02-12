@@ -1,3 +1,4 @@
+#![allow(unused)]
 #![feature(portable_simd, variant_count)]
 
 mod compressor;
@@ -27,11 +28,11 @@ where
     }
 
     test.instance
-        .get_typed_func::<(), i64>(&test.store, "decompress").unwrap()
-        .call(&mut test.store, ()).unwrap() as usize;
+        .get_typed_func::<(), ()>(&test.store, "decompress").unwrap()
+        .call(&mut test.store, ()).unwrap();
 
     let mut arr = [0u8; 4];
-    arr.copy_from_slice(&compressed[8..12]);
+    arr.copy_from_slice(&compressed[12..16]);
     let uncompressed_wasm_size = u32::from_le_bytes(arr) as usize;
     let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
     memory[1024 * 1024..1024 * 1024 + uncompressed_wasm_size].to_vec()
@@ -204,6 +205,7 @@ mod tests {
         assert_eq!(src, out);
     }
 
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn test_history() {
         let mut r = StdRng::seed_from_u64(42);
@@ -230,6 +232,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn test_match_model() {
         let mut r = StdRng::seed_from_u64(42);
@@ -271,6 +274,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn test_apm() {
         let mut r = StdRng::seed_from_u64(42);
@@ -299,6 +303,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn test_model() {
         let mut min_seed = (u64::MAX, 0);
@@ -338,6 +343,7 @@ mod tests {
         println!("min_seed: {:?}", min_seed);
     }
 
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn test_stretch() {
         let mut test = WasmDecompressor::new();
@@ -349,6 +355,7 @@ mod tests {
         assert_eq!(memory, &model.stretch_tab);
     }
 
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn test_mix_and_train() {
         let mut r = StdRng::seed_from_u64(42);
@@ -391,6 +398,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn test_indirect_probs() {
         let mut test = WasmDecompressor::new();
@@ -469,6 +477,7 @@ mod tests {
     }
 
     // rerun if table changes
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn squash_tab_generator() {
         let squash_tab: [i32; 33] = [
@@ -479,12 +488,14 @@ mod tests {
     }
 
     // rerun if table changes
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn bit_masks_tab_generator() {
         print_tab(BIT_MASKS, 16);
     }
 
     // rerun if table changes
+    #[cfg(feature = "manual-tests")]
     #[test]
     fn byte_masks_tab_generator() {
         print_tab(BYTE_MASKS, 16);

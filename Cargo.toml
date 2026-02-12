@@ -4,6 +4,15 @@ authors = ["sagacity", "ferris"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/datatrash/mashi"
+publish = false
+
+[package.metadata.dist]
+dist = true
+
+[features]
+default = []
+manual-tests = []
 
 [[bin]]
 name = "mashi"
@@ -31,3 +40,8 @@ log4rs = "1.4.0"
 num-traits = "0.2.19"
 rand = "0.10.0"
 wast = "245.0.0"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

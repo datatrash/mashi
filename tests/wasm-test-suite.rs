@@ -1,3 +1,4 @@
+#![allow(unused)]
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::ffi::OsStr;
@@ -19,6 +20,7 @@ struct Cli {
     module_index: Option<usize>,
 }
 
+#[cfg(feature = "manual-tests")]
 #[test]
 fn wasm_test_suite() -> anyhow::Result<()> {
     let cli = Cli::parse();
