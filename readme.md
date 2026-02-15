@@ -20,6 +20,8 @@ The resulting `out.html` can be opened in a browser (with local file access enab
 your Javascript code, passing in the decompressed WASM binary as a parameter. You can then instantiate the WASM module
 from your code and off you go.
 
+Please note that if you're opening this file locally, your browser probably will block the loader and you will need to start your browser with a special flag. For Chrome you will need to pass in the `--allow-file-access-from-files` command line flag, or you can host the resulting `out.html` in a simple web server instead.
+
 ### Status
 
 This is a very early release, so beware. Having said that, all files in the official WebAssembly Test Suite can be
