@@ -27,7 +27,7 @@ Please note that if you're opening this file locally, your browser probably will
 This is a very early release, so beware. Having said that, all files in the official WebAssembly Test Suite can be
 successfully compressed and decompressed without Mashi eating any bytes.
 
-Linux binaries are untested currently, as are browsers other than Chrome. Feel free to test and report back!
+Browsers other than Chrome are untested, currently. Feel free to test and report back!
 
 The decompression stub is written in pure WASM and takes about 2.5k.
 
