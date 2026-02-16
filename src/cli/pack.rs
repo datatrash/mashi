@@ -23,7 +23,7 @@ pub fn add_bytes_into_existing_data_section(
             Payload::DataSection(sec) => {
                 let mut data = DataSection::new();
                 RoundtripReencoder.parse_data_section(&mut data, sec)?;
-                data.active(0, &ConstExpr::i32_const(0i32), bytes.iter().copied());
+                data.active(0, &ConstExpr::i32_const(0x700000i32), bytes.iter().copied());
                 out.section(&data);
             }
 
@@ -128,6 +128,10 @@ pub fn pack(wasm_filename: Option<PathBuf>, js_filename: PathBuf, output_filenam
     };
 
     let total_length = js_input.len() + wasm_input.len();
+    if total_length > 7 * 1024 * 1024 {
+        anyhow::bail!("Input/depacked length exceeds 7mb, this is currently not supported.");
+    }
+
     let p = ProgressBar::new(total_length as u64).with_prefix("Compressing...");
     p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.cyan/blue} {pos:>7}/{len:7}] {msg}")?
         .progress_chars("##-"));
@@ -153,6 +157,10 @@ pub fn pack(wasm_filename: Option<PathBuf>, js_filename: PathBuf, output_filenam
         ..Default::default()
     }, Format::Deflate, &*bundle, &mut deflated)?;
     println!("Done!");
+
+    if deflated.len() > 1024 * 1024 {
+        anyhow::bail!("The packed data exceeds 1mb, this is currently not supported.");
+    }
 
     let header = include_str!("header.html");
     let header = header.replace("@@@", &header.len().to_string());

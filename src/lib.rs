@@ -24,7 +24,7 @@ where
     let mut test = WasmDecompressor::new();
     {
         let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
-        memory[..compressed.len()].copy_from_slice(&compressed);
+        memory[0x700000..0x700000 + compressed.len()].copy_from_slice(&compressed);
     }
 
     test.instance
@@ -35,7 +35,7 @@ where
     arr.copy_from_slice(&compressed[12..16]);
     let uncompressed_wasm_size = u32::from_le_bytes(arr) as usize;
     let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
-    memory[1024 * 1024..1024 * 1024 + uncompressed_wasm_size].to_vec()
+    memory[..uncompressed_wasm_size].to_vec()
 }
 
 struct WasmDecompressor {
@@ -426,7 +426,7 @@ mod tests {
         let mut test = WasmDecompressor::new();
         {
             let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
-            memory[..compressed.len()].copy_from_slice(&compressed);
+            memory[0x700000..0x700000 + compressed.len()].copy_from_slice(&compressed);
         }
 
         println!();
@@ -437,11 +437,11 @@ mod tests {
         let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
 
         /*for i in 0..high_level_decompressed.len() {
-            if memory[1024 * 1024 + i] != high_level_decompressed[i] {
+            if memory[i] != high_level_decompressed[i] {
                 panic!("Difference at offset {i}");
             }
         }*/
-        assert_eq!(memory[1024 * 1024..1024 * 1024 + high_level_decompressed.len()], high_level_decompressed);
+        assert_eq!(memory[..high_level_decompressed.len()], high_level_decompressed);
     }
 
     #[test]

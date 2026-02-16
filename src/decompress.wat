@@ -6,7 +6,7 @@
     ;;(import "host" "l_x32" (func $l_x32 (param i32)))
     ;;(import "host" "l_sep" (func $l_sep))
 
-    (global $src_ptr (mut i32) (i32.const 0))
+    (global $src_ptr (mut i32) (i32.const 0x700000))
     (global $code_section_start (mut i32) (i32.const 0))
     (global $code_section_end (mut i32) (i32.const 0))
     (global $js_output_size (mut i32) (i32.const 0))
@@ -57,7 +57,7 @@
         "\fe\0f\00\00"
     )
     ;; byte_history_pos = 0x00f1000
-    ;; depack to 0x0100000..0x0800000, so maybe shift everything when we need less memory, meh
+    ;; depack to 0x0000000..0x0700000, so maybe shift everything when we need less memory, meh
     ;; for every different dis_model_state (max 32 of them for now, increase this if we have more than DisModelStates + 1):
     ;;;; apm_indices = 0x0f02000
     ;;;; apm_weights = 0x0f03000
@@ -1603,7 +1603,7 @@
             (global.set $js_output_size (i32.load offset=8 (global.get $src_ptr)))
             (global.set $wasm_output_size (i32.load offset=12 (global.get $src_ptr)))
             (global.set $output_size (i32.add (global.get $js_output_size) (global.get $wasm_output_size)))
-            (global.set $src_ptr (i32.const 16))
+            (global.set $src_ptr (i32.add (global.get $src_ptr) (i32.const 16)))
 
             (call $model_init)
 
@@ -1614,9 +1614,8 @@
                 (global.set $rd_code)
                 (global.set $src_ptr (i32.add (global.get $src_ptr) (i32.const 1)))
 
-                ;; break when we read 4 bytes (and src_ptr is at 20)
-                (i32.lt_s (global.get $src_ptr) (i32.const 20))
-                (br_if $rd_init_loop)
+                ;; break when we read 4 bytes
+                (br_if $rd_init_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 4)))
             )
         ))
 
@@ -1651,9 +1650,9 @@
                 (local.set $i (i32.const 0))
                 (loop $decode_byte_loop
                     (local.set $bit (call $range_decode_bit (call $model_prob)))
-                    (i32.store8 offset=0x0100000 (global.get $byte_index)
+                    (i32.store8 (global.get $byte_index)
                         (i32.or
-                            (i32.shl (i32.load8_u offset=0x0100000 (global.get $byte_index)) (i32.const 1))
+                            (i32.shl (i32.load8_u (global.get $byte_index)) (i32.const 1))
                             (local.get $bit)
                         )
                     )
