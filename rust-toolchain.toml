@@ -1,2 +1,2 @@
 [toolchain]
-channel = "nightly-2026-01-10" # due to use of portable_simd, mainly
+channel = "nightly" # due to use of portable_simd, mainly
