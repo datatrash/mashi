@@ -23,7 +23,7 @@ where
 {
     let mut test = WasmDecompressor::new();
     {
-        let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
+        let memory = test.instance.get_memory(&test.store, "m").unwrap().data_mut(&mut test.store);
         memory[0x700000..0x700000 + compressed.len()].copy_from_slice(&compressed);
     }
 
@@ -34,7 +34,7 @@ where
     let mut arr = [0u8; 4];
     arr.copy_from_slice(&compressed[12..16]);
     let uncompressed_wasm_size = u32::from_le_bytes(arr) as usize;
-    let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
+    let memory = test.instance.get_memory(&test.store, "m").unwrap().data(&mut test.store);
     memory[..uncompressed_wasm_size].to_vec()
 }
 
@@ -53,34 +53,36 @@ impl WasmDecompressor {
             }
         }
         let log_path = log_path.join("wasm.txt");
-        let file = Arc::new(Mutex::new(File::create(&log_path).unwrap()));
 
         let engine = Engine::default();
         let module = Module::new(&engine, include_bytes!("decompress.wat")).unwrap();
 
         let mut store = Store::new(&engine, ());
         let mut linker = Linker::new(&engine);
-        let f = file.clone();
-        linker.func_wrap("host", "l_sep", move |_caller: Caller<'_, ()>| {
-            if DEBUG_LOG { writeln!(f.lock().unwrap(), "=============================================================================").unwrap(); }
-        }).unwrap();
-        let f = file.clone();
-        linker.func_wrap("host", "l_i32", move |_caller: Caller<'_, ()>, param: i32| {
-            if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param}").unwrap(); }
-        }).unwrap();
-        let f = file.clone();
-        linker.func_wrap("host", "l_u32", move |_caller: Caller<'_, ()>, param: u32| {
-            if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param}").unwrap(); }
-        }).unwrap();
-        let f = file.clone();
-        linker.func_wrap("host", "l_x32", move |_caller: Caller<'_, ()>, param: u32| {
-            if DEBUG_LOG { writeln!(f.lock().unwrap(), "{param:0X}").unwrap(); }
-        }).unwrap();
-        let f = file.clone();
-        linker.func_wrap("host", "l_dm", move |_caller: Caller<'_, ()>, state: u32, opcode: i32, byte: i32, read_pos: u32, write_pos: u32| {
-            let s: DisModelState = unsafe { mem::transmute(state as u8) };
-            if DEBUG_LOG { writeln!(f.lock().unwrap(), "{:?} | self.opcode: {:0X} | incoming byte: {:0X} (r: {}, w: {})", s, opcode, byte, read_pos, write_pos).unwrap(); }
-        }).unwrap();
+        if DEBUG_LOG {
+            let file = Arc::new(Mutex::new(File::create(&log_path).unwrap()));
+            let f = file.clone();
+            linker.func_wrap("host", "l_sep", move |_caller: Caller<'_, ()>| {
+                writeln!(f.lock().unwrap(), "=============================================================================").unwrap();
+            }).unwrap();
+            let f = file.clone();
+            linker.func_wrap("host", "l_i32", move |_caller: Caller<'_, ()>, param: i32| {
+                writeln!(f.lock().unwrap(), "{param}").unwrap();
+            }).unwrap();
+            let f = file.clone();
+            linker.func_wrap("host", "l_u32", move |_caller: Caller<'_, ()>, param: u32| {
+                writeln!(f.lock().unwrap(), "{param}").unwrap();
+            }).unwrap();
+            let f = file.clone();
+            linker.func_wrap("host", "l_x32", move |_caller: Caller<'_, ()>, param: u32| {
+                writeln!(f.lock().unwrap(), "{param:0X}").unwrap();
+            }).unwrap();
+            let f = file.clone();
+            linker.func_wrap("host", "l_dm", move |_caller: Caller<'_, ()>, state: u32, opcode: i32, byte: i32, read_pos: u32, write_pos: u32| {
+                let s: DisModelState = unsafe { mem::transmute(state as u8) };
+                writeln!(f.lock().unwrap(), "{:?} | self.opcode: {:0X} | incoming byte: {:0X} (r: {}, w: {})", s, opcode, byte, read_pos, write_pos).unwrap();
+            }).unwrap();
+        }
         let instance = linker.instantiate_and_start(&mut store, &module).unwrap();
 
         Self {
@@ -90,7 +92,7 @@ impl WasmDecompressor {
     }
 
     fn memory(&self) -> &[u8] {
-        self.instance.get_memory(&self.store, "memory").unwrap().data(&self.store)
+        self.instance.get_memory(&self.store, "m").unwrap().data(&self.store)
     }
 
     fn model_init(&mut self) {
@@ -163,18 +165,13 @@ impl WasmDecompressor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dis_model::NUM_DIS_MODEL_STATES;
-    use crate::model::{Apm, History, MatchModel, Model, APM_CONTEXT_SIZE, BIT_MASKS, BYTE_MASKS, NUM_MATCH_MODELS};
     use log::LevelFilter;
     use log4rs::append::file::FileAppender;
     use log4rs::config::{Appender, Root};
     use log4rs::encode::pattern::PatternEncoder;
     use log4rs::Config;
     use num_traits::ToBytes;
-    use rand::prelude::StdRng;
-    use rand::{Rng, RngExt, SeedableRng};
-    use std::simd::i16x8;
-    use std::{println, ptr, slice};
+    use std::println;
 
     fn init_log() {
         if DEBUG_LOG {
@@ -370,7 +367,7 @@ mod tests {
             i16x8::from_slice(&[88, 99, 1010, 1111, 1212, 1313, 1414, 1515]),
         ];
 
-        let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
+        let memory = test.instance.get_memory(&test.store, "m").unwrap().data_mut(&mut test.store);
         unsafe {
             ptr::copy(probs.as_ptr() as *const _, memory[0..].as_mut_ptr(), 32);
             ptr::copy(weights.as_ptr() as *const _, memory[1024..].as_mut_ptr(), 32);
@@ -425,7 +422,7 @@ mod tests {
 
         let mut test = WasmDecompressor::new();
         {
-            let memory = test.instance.get_memory(&test.store, "memory").unwrap().data_mut(&mut test.store);
+            let memory = test.instance.get_memory(&test.store, "m").unwrap().data_mut(&mut test.store);
             memory[0x700000..0x700000 + compressed.len()].copy_from_slice(&compressed);
         }
 
@@ -434,7 +431,7 @@ mod tests {
             .get_typed_func::<(), ()>(&test.store, "decompress").unwrap()
             .call(&mut test.store, ()).unwrap();
 
-        let memory = test.instance.get_memory(&test.store, "memory").unwrap().data(&mut test.store);
+        let memory = test.instance.get_memory(&test.store, "m").unwrap().data(&mut test.store);
 
         /*for i in 0..high_level_decompressed.len() {
             if memory[i] != high_level_decompressed[i] {

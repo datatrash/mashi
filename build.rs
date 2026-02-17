@@ -20,10 +20,10 @@ fn main() -> anyhow::Result<()> {
 [
   { "name": "outside", "reaches": ["export-decompress", "export-memory"], "root": true },
   { "name": "export-decompress", "export": "d" },
-  { "name": "export-memory", "export": "memory" }
+  { "name": "export-memory", "export": "m" }
 ]
 "#)?;
-    cmd!("wasm-metadce", "--enable-bulk-memory-opt", "--enable-simd", "generated/decompress.wasm", "--graph-file", "target/decompress.jsonlike", "-o", "target/decompress.wasm").run()?;
+    cmd!("wasm-metadce", "--enable-bulk-memory-opt", "--enable-simd", "generated/decompress.wasm", "--graph-file", "target/decompress.jsonlike", "-o", "generated/decompress.wasm").run()?;
     cmd!("wasm-opt", "--enable-bulk-memory-opt", "--enable-simd", "generated/decompress.wasm", "-Oz", "-o", "generated/decompress.wasm").run()?;
 
     println!("cargo::rerun-if-changed=src/cli/depacker.js");

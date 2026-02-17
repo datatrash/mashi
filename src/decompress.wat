@@ -105,7 +105,7 @@
     (global $dm_float_bytes_left (mut i32) (i32.const 0))
     (global $dm_opcode (mut i32) (i32.const 0))
 
-    (memory (export "memory") 9808) ;; bomb that tree line about 613mb back
+    (memory (export "m") 9808) ;; bomb that tree line about 613mb back
 
     (func $range_decode_bit (param $prob i32) (result i32)
         (local $bound i32)
@@ -212,13 +212,11 @@
     (func $mix (export "mix") (param $probs_ptr i32) (param $weights_ptr i32) (param $count i32) (result i32)
         (local $x i32)
         (local $acc v128)
-        (local $tmp i32)
 
         (local.set $acc (i16x8.splat (i32.const 0)))
 
         (loop $acc_loop
             (local.set $acc
-                (local.set $tmp (i32.const 0))
                 (i16x8.add
                     (local.get $acc)
                     (call $mul_hi (v128.load (local.get $probs_ptr)) (v128.load (local.get $weights_ptr)))
@@ -910,11 +908,11 @@
         ;; after stretching
 
         ;; debug: log all stage_1_probs
-        (local.set $i (i32.const 0))
+        (;local.set $i (i32.const 0))
         (loop $debug_stage_1_probs_loop
             (local.set $i (i32.add (local.get $i) (i32.const 2)))
             (br_if $debug_stage_1_probs_loop (i32.lt_u (local.get $i) (local.get $probs_ptr)))
-        )
+        ;)
 
         (local.set $i (i32.const 0))
         (loop $set_stage_1_weight_contexts_loop
@@ -979,7 +977,7 @@
             (br_if $create_stage_2_probs_loop (i32.lt_u (local.get $probs_ptr) (i32.const 16)))
         )
         ;; debug: log all stage_1_weights
-        (local.set $i (i32.const 0))
+        (;local.set $i (i32.const 0))
         (loop $debug_stage_1_weight_contexts_loop
             (local.set $tmp (i32.const 0))
             (loop $debug_inner_s1wcl
@@ -988,19 +986,19 @@
             )
             (local.set $i (i32.add (local.get $i) (i32.const 1)))
             (br_if $debug_stage_1_weight_contexts_loop (i32.lt_u (local.get $i) (i32.const 8)))
-        )
+        ;)
         ;; debug: log all stage_1_weight_contexts
-        (local.set $i (i32.const 0))
+        (;local.set $i (i32.const 0))
         (loop $debug_stage_1_weight_contexts_loop
             (local.set $i (i32.add (local.get $i) (i32.const 1)))
             (br_if $debug_stage_1_weight_contexts_loop (i32.lt_u (local.get $i) (i32.const 8)))
-        )
+        ;)
         ;; debug: log all stage_2_probs
-        (local.set $i (i32.const 0))
+        (;local.set $i (i32.const 0))
         (loop $debug_stage_2_probs_loop
             (local.set $i (i32.add (local.get $i) (i32.const 2)))
             (br_if $debug_stage_2_probs_loop (i32.lt_u (local.get $i) (i32.const 16)))
-        )
+        ;)
 
         (global.set $stage_2_prob
             (call $mix
@@ -1514,10 +1512,10 @@
         )
 
         ;; debug print
-        (local.set $i (i32.const 0))
+        (;local.set $i (i32.const 0))
         (loop $debug_print_loop
             (br_if $debug_print_loop (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 2))) (i32.const 16)))
-        )
+        ;)
 
         ;; update apm stages
         (local.set $i (i32.const 0))

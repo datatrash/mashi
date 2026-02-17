@@ -10,7 +10,7 @@
             // more to do
             setTimeout(step, 0);
         } else {
-            let mem = mashi.instance.exports.memory.buffer;
+            let mem = mashi.instance.exports.m.buffer;
             let view = new DataView(mem);
             let pos = 0x700008;
             let js_size = view.getUint32(pos, true);
