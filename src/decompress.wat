@@ -1665,7 +1665,7 @@
 
                 (global.set $byte_index (i32.add (global.get $byte_index) (i32.const 1)))
 
-                (if (i32.eq (i32.and (global.get $byte_index) (i32.const 0xfff)) (i32.const 0xfff)) (then
+                (if (i32.eq (i32.and (global.get $byte_index) (i32.const 0x1ff)) (i32.const 0x1ff)) (then
                     ;; break to allow progressbar to update
                     (return (f32.div (f32.convert_i32_u (global.get $byte_index)) (f32.convert_i32_u (global.get $output_size))))
                 ))
