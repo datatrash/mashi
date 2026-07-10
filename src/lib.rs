@@ -451,6 +451,11 @@ mod tests {
         wasm_roundtrip(include_bytes!("../tests/data/test.wasm"));
     }
 
+    #[test]
+    fn test_wasm_raltron_jingler_instruments_roundtrip() {
+        wasm_roundtrip(include_bytes!("../tests/data/raltron_jingler_instruments.wasm"));
+    }
+    
     fn print_tab<T>(tab: &[T], items_per_line: usize) where T: ToBytes {
         let mut current_line = String::new();
 
