@@ -1046,6 +1046,7 @@
         (local $i i64)
         (local $state i32)
         (local $should_remain i32)
+        (local $op i32)
 
         (local.set $state (call $dm_val))
         ;;(call $l_dm (local.get $state) (global.get $dm_opcode) (local.get $byte) (global.get $dm_read_pos) (global.get $dm_write_pos))
@@ -1136,11 +1137,17 @@
                 )
                 ;; prefix_opcode
                 (if (call $dm_update_leb (local.get $byte)) (then
+                    (local.set $op
+                        (if (result i32) (i64.gt_u (global.get $dm_leb_val) (i64.const 0xff))
+                            (then (i32.const 0x1000))
+                            (else (i32.wrap_i64 (global.get $dm_leb_val)))
+                        )
+                    )
                     (if (i32.eq (global.get $dm_opcode) (i32.const 0xfc)) (then
                         (if
                             (i32.or
-                                (i32.eq (local.get $byte) (i32.const 0x8))
-                                (i32.eq (local.get $byte) (i32.const 0xa))
+                                (i32.eq (local.get $op) (i32.const 0x8))
+                                (i32.eq (local.get $op) (i32.const 0xa))
                             )
                              (then
                                 (call $dm_write (i32.const 11))
@@ -1149,28 +1156,28 @@
                         ))
                         (if
                             (i32.or
-                                (i32.eq (local.get $byte) (i32.const 0xc))
-                                (i32.eq (local.get $byte) (i32.const 0xe))
+                                (i32.eq (local.get $op) (i32.const 0xc))
+                                (i32.eq (local.get $op) (i32.const 0xe))
                             )
                              (then
                                 (call $dm_write (i32.const 24))
                                 (call $dm_write (i32.const 24))
                                 br $done
                         ))
-                        (if (i32.and (i32.ge_u (local.get $byte) (i32.const 0x09)) (i32.le_u (local.get $byte) (i32.const 0x12)))
+                        (if (i32.and (i32.ge_u (local.get $op) (i32.const 0x09)) (i32.le_u (local.get $op) (i32.const 0x12)))
                              (then
                                 (call $dm_write (i32.const 12))
                         ))
                     ))
                     (if (i32.eq (global.get $dm_opcode) (i32.const 0xfd)) (then
                         (if (i32.or
-                                (i32.le_u (local.get $byte) (i32.const 11))
-                                (i32.or (i32.eq (local.get $byte) (i32.const 92)) (i32.eq (local.get $byte) (i32.const 93)))
+                                (i32.le_u (local.get $op) (i32.const 11))
+                                (i32.or (i32.eq (local.get $op) (i32.const 92)) (i32.eq (local.get $op) (i32.const 93)))
                             )
                              (then
                                 (call $dm_write (i32.const 15))
                         ))
-                        (if (i32.or (i32.eq (local.get $byte) (i32.const 12)) (i32.eq (local.get $byte) (i32.const 13)))
+                        (if (i32.or (i32.eq (local.get $op) (i32.const 12)) (i32.eq (local.get $op) (i32.const 13)))
                              (then
                                 (loop $write_vector_byte_loop
                                     (call $dm_write (i32.const 23))
@@ -1179,8 +1186,8 @@
                         ))
                         (if
                             (i32.or
-                                (i32.and (i32.ge_u (local.get $byte) (i32.const 21)) (i32.le_u (local.get $byte) (i32.const 34)))
-                                (i32.and (i32.ge_u (local.get $byte) (i32.const 84)) (i32.le_u (local.get $byte) (i32.const 91)))
+                                (i32.and (i32.ge_u (local.get $op) (i32.const 21)) (i32.le_u (local.get $op) (i32.const 34)))
+                                (i32.and (i32.ge_u (local.get $op) (i32.const 84)) (i32.le_u (local.get $op) (i32.const 91)))
                             )
                              (then
                                 (call $dm_write (i32.const 15))
@@ -1188,14 +1195,14 @@
                         ))
                     ))
                     (if (i32.eq (global.get $dm_opcode) (i32.const 0xfe)) (then
-                        (if (i32.eq (local.get $byte) (i32.const 3))
+                        (if (i32.eq (local.get $op) (i32.const 3))
                              (then
                                 (call $dm_write (i32.const 23))
                         ))
                         (if
                             (i32.or
-                                (i32.and (i32.ge_u (local.get $byte) (i32.const 0x0)) (i32.le_u (local.get $byte) (i32.const 0x02)))
-                                (i32.and (i32.ge_u (local.get $byte) (i32.const 0x10)) (i32.le_u (local.get $byte) (i32.const 0x4e)))
+                                (i32.and (i32.ge_u (local.get $op) (i32.const 0x0)) (i32.le_u (local.get $op) (i32.const 0x02)))
+                                (i32.and (i32.ge_u (local.get $op) (i32.const 0x10)) (i32.le_u (local.get $op) (i32.const 0x4e)))
                             )
                              (then
                                 (call $dm_write (i32.const 15))
