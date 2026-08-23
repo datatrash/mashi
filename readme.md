@@ -22,6 +22,10 @@ from your code and off you go.
 
 Please note that if you're opening this file locally, your browser probably will block the loader and you will need to start your browser with a special flag. For Chrome you will need to pass in the `--allow-file-access-from-files` command line flag, or you can host the resulting `out.html` in a simple web server instead.
 
+### In the wild
+
+* [Raltron by Fnuque](https://www.pouet.net/prod.php?which=106875), winner of the Evoke 2026 64k intro competition
+
 ### Status
 
 This is a very early release, so beware. Having said that, all files in the official WebAssembly Test Suite can be
