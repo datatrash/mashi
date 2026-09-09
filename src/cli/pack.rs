@@ -1,5 +1,5 @@
 use indicatif::{ProgressBar, ProgressStyle};
-use mashi::compress;
+use mashi::{compress, ContextModel};
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, io};
@@ -120,14 +120,19 @@ pub fn add_bytes_into_existing_data_section(
     Ok(out.finish())
 }
 
-pub fn pack(wasm_filename: Option<PathBuf>, js_filename: PathBuf, output_filename: PathBuf) -> anyhow::Result<()> {
+pub fn pack(wasm_filename: Option<PathBuf>, bin_filename: Option<PathBuf>, js_filename: PathBuf, output_filename: PathBuf) -> anyhow::Result<()> {
     let js_input = fs::read(&js_filename)?;
-    let wasm_input = match wasm_filename {
-        Some(filename) => fs::read(&filename)?,
-        None => vec![]
+
+    // --wasm uses the WASM context model for the best ratio; --bin (or no payload at all, i.e.
+    // JS-only) has no code section to model, so it's compiled out of the decompressor entirely.
+    let (payload_input, context_model) = match (wasm_filename, bin_filename) {
+        (Some(filename), None) => (fs::read(&filename)?, ContextModel::Wasm),
+        (None, Some(filename)) => (fs::read(&filename)?, ContextModel::None),
+        (None, None) => (vec![], ContextModel::None),
+        (Some(_), Some(_)) => unreachable!("clap enforces --wasm and --bin are mutually exclusive"),
     };
 
-    let total_length = js_input.len() + wasm_input.len();
+    let total_length = js_input.len() + payload_input.len();
     if total_length > 7 * 1024 * 1024 {
         anyhow::bail!("Input/depacked length exceeds 7mb, this is currently not supported.");
     }
@@ -135,14 +140,18 @@ pub fn pack(wasm_filename: Option<PathBuf>, js_filename: PathBuf, output_filenam
     let p = ProgressBar::new(total_length as u64).with_prefix("Compressing...");
     p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.cyan/blue} {pos:>7}/{len:7}] {msg}")?
         .progress_chars("##-"));
-    let (compressed_data, _) = compress(&js_input, &wasm_input, |progress| {
+    let (compressed_data, _) = compress(&js_input, &payload_input, context_model, |progress| {
         p.set_position(progress as u64);
     });
     p.finish_with_message("Done!");
 
     // Create a new WASM module that has the compressed data already inserted in its memory
     let js_depacker: &[u8] = include_bytes!("../../generated/depacker.js.min");
-    let decompressor = add_bytes_into_existing_data_section(include_bytes!("../../generated/decompress.wasm"), &compressed_data)?;
+    let decompress_stub: &[u8] = match context_model {
+        ContextModel::Wasm => include_bytes!("../../generated/decompress.wasm"),
+        ContextModel::None => include_bytes!("../../generated/decompress_bin.wasm"),
+    };
+    let decompressor = add_bytes_into_existing_data_section(decompress_stub, &compressed_data)?;
 
     let mut bundle = vec![];
     bundle.extend(js_depacker);

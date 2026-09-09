@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use wast::parser::ParseBuffer;
 use wast::{parser, Wast, WastDirective};
-use mashi::{compress, wasm_decompress};
+use mashi::{compress, wasm_decompress, ContextModel};
 
 /// Mashi Test Suite runner, runs as many WAST tests from the official test suite through a
 /// compression and decompression roundtrip to make sure Mashi doesn't mangle anything in the process.
@@ -94,12 +94,12 @@ fn wasm_test_suite() -> anyhow::Result<()> {
             let p = ProgressBar::new(binary.len() as u64).with_prefix(prefix);
             p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.cyan/blue} {pos:>7}/{len:7}] {msg}")?
                 .progress_chars("##-"));
-            let (compressed, _) = compress(&[], &binary, |pos| {
+            let (compressed, _) = compress(&[], &binary, ContextModel::Wasm, |pos| {
                 p.set_position(pos as u64);
             });
             p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.green/red} {pos:>7}/{len:7}] {msg}")?
                 .progress_chars("##-"));
-            let decompressed = wasm_decompress(&compressed, |pos| {
+            let decompressed = wasm_decompress(&compressed, ContextModel::Wasm, |pos| {
                 p.set_position(pos as u64);
             });
             let result = *binary == decompressed;

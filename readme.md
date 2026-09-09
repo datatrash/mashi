@@ -12,13 +12,20 @@ If you just have an `intro.js`:
 
 `mashi pack intro.js out.html`
 
-if you have an `intro.js` which should receive the bytes in `intro.wasm` as an argument:
+#### WASM
+if you have an `intro.js` which should receive the WASM bytes in `intro.wasm` as an argument:
 
 `mashi pack intro.js --wasm intro.wasm out.html`
 
+#### Binary data
+if you have an `intro.js` which should receive the raw binary bytes in `intro.bin` an argument, not using a WASM context model:
+
+`mashi pack intro.js --bin intro.bin out.html`
+
+#### Output
 The resulting `out.html` can be opened in a browser (with local file access enabled) and will automatically invoke
-your Javascript code, passing in the decompressed WASM binary as a parameter. You can then instantiate the WASM module
-from your code and off you go.
+your Javascript code, passing in the decompressed payload as a parameter. You can then instantiate the WASM module
+(for `--wasm`) or use the raw bytes directly (for `--bin`) from your code and off you go.
 
 Please note that if you're opening this file locally, your browser probably will block the loader and you will need to start your browser with a special flag. For Chrome you will need to pass in the `--allow-file-access-from-files` command line flag, or you can host the resulting `out.html` in a simple web server instead.
 
@@ -33,7 +40,9 @@ successfully compressed and decompressed without Mashi eating any bytes.
 
 Browsers other than Chrome and FireFox are untested, currently. Feel free to test and report back!
 
-The decompression stub is written in pure WASM and takes about 2.5k.
+The decompression stub is written in pure WASM and takes about 2.5k when using the WASM context model
+(`--wasm`), or about 2k when it isn't needed (JS-only packing and `--bin`) -- the model's code is compiled
+out of that build entirely, rather than merely left unused.
 
 ### How to hack
 

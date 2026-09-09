@@ -4,9 +4,11 @@
 mod compressor;
 mod dis_model;
 mod model;
+mod wat_flag;
 
 use crate::dis_model::DisModelState;
 pub use compressor::{compress, decompress};
+pub use model::ContextModel;
 
 use std::fs::File;
 use std::io::Write;
@@ -17,11 +19,11 @@ use wasmi::*;
 
 const DEBUG_LOG: bool = false;
 
-pub fn wasm_decompress<F>(compressed: &[u8], mut _f: F) -> Vec<u8>
+pub fn wasm_decompress<F>(compressed: &[u8], context_model: ContextModel, mut _f: F) -> Vec<u8>
 where
     F: FnMut(usize),
 {
-    let mut test = WasmDecompressor::new();
+    let mut test = WasmDecompressor::new(context_model);
     {
         let memory = test.instance.get_memory(&test.store, "m").unwrap().data_mut(&mut test.store);
         memory[0x700000..0x700000 + compressed.len()].copy_from_slice(&compressed);
@@ -45,7 +47,7 @@ struct WasmDecompressor {
 
 #[allow(unused)]
 impl WasmDecompressor {
-    fn new() -> Self {
+    fn new(context_model: ContextModel) -> Self {
         let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/log");
         if DEBUG_LOG {
             if !fs::exists(&log_path).unwrap() {
@@ -55,7 +57,13 @@ impl WasmDecompressor {
         let log_path = log_path.join("wasm.txt");
 
         let engine = Engine::default();
-        let module = Module::new(&engine, include_bytes!("decompress.wat")).unwrap();
+        let module = match context_model {
+            ContextModel::Wasm => Module::new(&engine, include_bytes!("decompress.wat")).unwrap(),
+            ContextModel::None => {
+                let wat = wat_flag::without_wasm_model(include_str!("decompress.wat"));
+                Module::new(&engine, wat.as_bytes()).unwrap()
+            }
+        };
 
         let mut store = Store::new(&engine, ());
         let mut linker = Linker::new(&engine);
@@ -196,9 +204,9 @@ mod tests {
 
         // just a roundtrip of the pure Rust implementation
         let src = include_bytes!("../tests/data/test.wasm").to_vec();
-        let (c, _) = compress(&[], &src, |_| ());
+        let (c, _) = compress(&[], &src, ContextModel::Wasm, |_| ());
         println!("From {} to {}", src.len(), c.len());
-        let (out, _) = decompress(&c, |_| ());
+        let (out, _) = decompress(&c, ContextModel::Wasm, |_| ());
         assert_eq!(src, out);
     }
 
@@ -209,7 +217,7 @@ mod tests {
         let mut data = [0i32; 64];
         r.fill(&mut data);
 
-        let mut test = WasmDecompressor::new();
+        let mut test = WasmDecompressor::new(ContextModel::Wasm);
         test.model_init();
 
         let mut histories = vec![];
@@ -236,7 +244,7 @@ mod tests {
         let mut data = [0i32; 262144];
         r.fill(&mut data);
 
-        let mut test = WasmDecompressor::new();
+        let mut test = WasmDecompressor::new(ContextModel::Wasm);
         test.model_init();
 
         let mut history = History::new();
@@ -278,7 +286,7 @@ mod tests {
         let mut probs = [0i32; 262144];
         r.fill(&mut probs);
 
-        let mut test = WasmDecompressor::new();
+        let mut test = WasmDecompressor::new(ContextModel::Wasm);
         test.model_init();
 
         let apm_stages = &mut [
@@ -313,10 +321,10 @@ mod tests {
             let mut bits = [0u8; 8];
             r.fill_bytes(&mut bits);
 
-            let mut test = WasmDecompressor::new();
+            let mut test = WasmDecompressor::new(ContextModel::Wasm);
             test.model_init();
 
-            let mut model = Model::new();
+            let mut model = Model::new(ContextModel::Wasm);
             for (pos, bit) in bits.iter().enumerate() {
                 let bit = if *bit < 128 { 0 } else { 1 };
                 let rust_prob = model.prob() as i32;
@@ -343,10 +351,10 @@ mod tests {
     #[cfg(feature = "manual-tests")]
     #[test]
     fn test_stretch() {
-        let mut test = WasmDecompressor::new();
+        let mut test = WasmDecompressor::new(ContextModel::Wasm);
         test.model_init();
 
-        let model = Model::new();
+        let model = Model::new(ContextModel::Wasm);
         let memory = test.memory()[0x00d0000..0x00d1000].as_ptr() as *const i32;
         let memory: &[i32] = unsafe { slice::from_raw_parts(memory, 4096) };
         assert_eq!(memory, &model.stretch_tab);
@@ -357,7 +365,7 @@ mod tests {
     fn test_mix_and_train() {
         let mut r = StdRng::seed_from_u64(42);
 
-        let mut test = WasmDecompressor::new();
+        let mut test = WasmDecompressor::new(ContextModel::Wasm);
         let probs = vec![
             i16x8::from_slice(&[1111, 2222, 3333, 4444, 5555, 6666, 7777, 8888]),
             i16x8::from_slice(&[555, 1555, 2555, 3555, 4555, 5555, 6555, 7555]),
@@ -398,10 +406,10 @@ mod tests {
     #[cfg(feature = "manual-tests")]
     #[test]
     fn test_indirect_probs() {
-        let mut test = WasmDecompressor::new();
+        let mut test = WasmDecompressor::new(ContextModel::Wasm);
         test.model_init();
 
-        let model = Model::new();
+        let model = Model::new(ContextModel::Wasm);
         for i in 0..NUM_DIS_MODEL_STATES + 1 {
             const LENGTH_IN_BYTES: usize = 0x540000;
             let start = 0x1ac00000 + i * LENGTH_IN_BYTES;
@@ -413,14 +421,14 @@ mod tests {
     }
 
     fn wasm_roundtrip(src: &[u8]) {
-        let (compressed, _) = compress(&[], &src, |_| ());
+        let (compressed, _) = compress(&[], &src, ContextModel::Wasm, |_| ());
 
         init_log();
 
-        let (high_level_decompressed, _) = decompress(&compressed, |_| ());
+        let (high_level_decompressed, _) = decompress(&compressed, ContextModel::Wasm, |_| ());
         assert_eq!(&high_level_decompressed, &src);
 
-        let mut test = WasmDecompressor::new();
+        let mut test = WasmDecompressor::new(ContextModel::Wasm);
         {
             let memory = test.instance.get_memory(&test.store, "m").unwrap().data_mut(&mut test.store);
             memory[0x700000..0x700000 + compressed.len()].copy_from_slice(&compressed);
@@ -455,7 +463,62 @@ mod tests {
     fn test_wasm_raltron_jingler_instruments_roundtrip() {
         wasm_roundtrip(include_bytes!("../tests/data/raltron_jingler_instruments.wasm"));
     }
-    
+
+    fn bin_roundtrip(js_input: &[u8], payload_input: &[u8]) {
+        let (compressed, _) = compress(js_input, payload_input, ContextModel::None, |_| ());
+
+        init_log();
+
+        let (high_level_decompressed, _) = decompress(&compressed, ContextModel::None, |_| ());
+        let mut expected: Vec<u8> = vec![];
+        expected.extend(js_input);
+        expected.extend(payload_input);
+        assert_eq!(high_level_decompressed, expected);
+
+        let mut test = WasmDecompressor::new(ContextModel::None);
+        {
+            let memory = test.instance.get_memory(&test.store, "m").unwrap().data_mut(&mut test.store);
+            memory[0x700000..0x700000 + compressed.len()].copy_from_slice(&compressed);
+        }
+
+        test.instance
+            .get_typed_func::<(), ()>(&test.store, "decompress").unwrap()
+            .call(&mut test.store, ()).unwrap();
+
+        let memory = test.instance.get_memory(&test.store, "m").unwrap().data(&mut test.store);
+        assert_eq!(memory[..expected.len()], expected);
+    }
+
+    #[test]
+    fn test_bin_tiny_roundtrip() {
+        // Used here as raw binary test data, not as a WASM module
+        bin_roundtrip(&[], include_bytes!("../tests/data/add.wasm"));
+    }
+
+    #[test]
+    fn test_bin_full_roundtrip() {
+        bin_roundtrip(&[], include_bytes!("../tests/data/test.wasm"));
+    }
+
+    #[test]
+    fn test_bin_raltron_jingler_instruments_roundtrip() {
+        bin_roundtrip(&[], include_bytes!("../tests/data/raltron_jingler_instruments.wasm"));
+    }
+
+    #[test]
+    fn test_js_only_roundtrip() {
+        bin_roundtrip(include_bytes!("../tests/data/0mix-by-0b5vr-unpacked.js"), &[]);
+    }
+
+    #[test]
+    fn test_js_only_is_unaffected_by_context_model() {
+        // JS-only input never enters a code section, so dropping the WASM context model must be free: both context models should produce byte-identical compressed output for it.
+        let js = include_bytes!("../tests/data/0mix-by-0b5vr-unpacked.js");
+        let (with_wasm_model, _) = compress(js, &[], ContextModel::Wasm, |_| ());
+        let (without_wasm_model, _) = compress(js, &[], ContextModel::None, |_| ());
+        assert_eq!(with_wasm_model, without_wasm_model);
+    }
+
     fn print_tab<T>(tab: &[T], items_per_line: usize) where T: ToBytes {
         let mut current_line = String::new();
 

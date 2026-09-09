@@ -17,15 +17,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Pack a JS file into an index.html file, with an optional WASM binary to be passed into the JS code
+    /// Pack a JS file into an index.html file, with an optional WASM or raw binary payload to be passed into the JS code
     Pack {
         /// The filename of the Javascript file to include
         #[arg(value_hint = clap::ValueHint::FilePath)]
         js_filename: PathBuf,
 
-        /// The filename of the WASM binary to include
-        #[arg(long = "wasm", value_hint = clap::ValueHint::FilePath)]
+        /// The filename of the WASM binary to include. Uses a WASM-specific context model to improve the compression ratio.
+        #[arg(long = "wasm", value_hint = clap::ValueHint::FilePath, conflicts_with = "bin_filename")]
         wasm_filename: Option<PathBuf>,
+
+        /// The filename of the raw binary data to include, not using a WASM context model.
+        #[arg(long = "bin", value_hint = clap::ValueHint::FilePath, conflicts_with = "wasm_filename")]
+        bin_filename: Option<PathBuf>,
 
         /// Output filename
         #[arg(default_value = "index.html")]
@@ -38,9 +42,9 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Pack {
-            wasm_filename, js_filename, output_filename
+            wasm_filename, bin_filename, js_filename, output_filename
         } => {
-            cli::pack(wasm_filename, js_filename, output_filename)?;
+            cli::pack(wasm_filename, bin_filename, js_filename, output_filename)?;
         }
     }
 

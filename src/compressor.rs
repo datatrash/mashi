@@ -18,16 +18,19 @@ struct RangeEncoderState {
     bits_per_byte: Vec<f32>,
 }
 
-pub fn compress<F>(js_input: &[u8], wasm_input: &[u8], mut f: F) -> (Vec<u8>, Vec<f32>)
+pub fn compress<F>(js_input: &[u8], payload_input: &[u8], context_model: ContextModel, mut f: F) -> (Vec<u8>, Vec<f32>)
 where
     F: FnMut(usize),
 {
-    use wasmparser::Payload::CodeSectionStart;
-    use wasmparser::Parser;
     let mut code_section = 0u64..0u64;
-    if !wasm_input.is_empty() {
+    // Only scan for a code section when the WASM context model is actually in play; a raw binary
+    // payload is probably not valid WASM so don't run wasmparser over it at all.
+    if context_model == ContextModel::Wasm && !payload_input.is_empty() {
+        use wasmparser::Payload::CodeSectionStart;
+        use wasmparser::Parser;
+
         let parser = Parser::new(0);
-        for payload in parser.parse_all(&wasm_input) {
+        for payload in parser.parse_all(&payload_input) {
             match payload.unwrap() {
                 CodeSectionStart { range, .. } => {
                     code_section.start = range.start as u64;
@@ -36,7 +39,7 @@ where
                 _ => ()
             }
         }
-        
+
         if code_section.start == 0 {
             println!("Warning: the provided WASM binary doesn't seem to have a code section");
         }
@@ -44,11 +47,11 @@ where
 
     let mut input: Vec<u8> = vec![];
     input.extend(js_input);
-    input.extend(wasm_input);
+    input.extend(payload_input);
     code_section.start += js_input.len() as u64;
     code_section.end += js_input.len() as u64;
 
-    let mut model = Model::new();
+    let mut model = Model::new(context_model);
     let mut state = RangeEncoderState {
         output: Vec::new(),
 
@@ -144,7 +147,7 @@ where
     f(input_len);
 
     state.output.as_mut_slice()[8..12].copy_from_slice(&(js_input.len() as u32).to_le_bytes());
-    state.output.as_mut_slice()[12..16].copy_from_slice(&(wasm_input.len() as u32).to_le_bytes());
+    state.output.as_mut_slice()[12..16].copy_from_slice(&(payload_input.len() as u32).to_le_bytes());
 
     (state.output, state.bits_per_byte)
 }
@@ -193,7 +196,7 @@ struct RangeDecoderState<'a, I: Iterator<Item=&'a u8>> {
     range: u32,
 }
 
-pub fn decompress<F>(input: &[u8], mut f: F) -> (Vec<u8>, Model)
+pub fn decompress<F>(input: &[u8], context_model: ContextModel, mut f: F) -> (Vec<u8>, Model)
 where
     F: FnMut(usize),
 {
@@ -212,7 +215,7 @@ where
 
     let input = &input[16..];
 
-    let mut model = Model::new();
+    let mut model = Model::new(context_model);
     let mut state = RangeDecoderState {
         input: input.into_iter(),
 

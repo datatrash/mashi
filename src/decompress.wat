@@ -30,6 +30,12 @@
     (global $num_active_context_models (mut i32) (i32.const 21))
     (global $num_model_outputs (mut i32) (i32.const 72))
 
+    ;; Compile-time switch for the WASM context model. Immutable and constant, so binaryen
+    ;; propagates it, folds every guard below, and then drops the entire dis model subtree.
+    ;; build.rs flips this to 0 to produce the binary/JS-only variant of the stub; keep the
+    ;; formatting of this line in sync with src/wat_flag.rs.
+    (global $use_wasm_model i32 (i32.const 1))
+
     ;; offsets:
     ;; stretch_tab = 0x00d0000
 
@@ -347,7 +353,8 @@
                 (i32.const 0xe000000)
                 (i32.const 0x220000)
             )
-            (br_if $copy_apm_tabs_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (i32.const 96)))
+            ;; 96 dismodelstates when the WASM model is compiled in; only 3 apm stages for the single state otherwise
+            (br_if $copy_apm_tabs_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (select (i32.const 96) (i32.const 3) (global.get $use_wasm_model))))
         )
 
         ;; init indirect_probs
@@ -391,7 +398,8 @@
             )
 
             ;; 21504 = NUM_MAX_ACTIVE_CONTEXT_MODELS (42) * 16 * 32 possible dismodelstates, see DisModelContext::new() for the first two
-            (br_if $copy_indirect_probs_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (i32.const 21504)))
+            ;; 336 = NUM_MIN_ACTIVE_CONTEXT_MODELS (21) * 16 for the single dismodelstate when the WASM model is compiled out
+            (br_if $copy_indirect_probs_loop (i32.lt_u (local.tee $x (i32.add (local.get $x) (i32.const 1))) (select (i32.const 21504) (i32.const 336) (global.get $use_wasm_model))))
         )
     )
 
@@ -1337,6 +1345,7 @@
         (local $last_bits i32)
         (local $probs_ptr i32)
         (local $history_index i32)
+        (local $ics i32) ;; is_in_code_section, gated by $use_wasm_model
 
         ;; update context models
         (local.set $i (i32.const 0))
@@ -1549,17 +1558,18 @@
 
                 (global.set $bit_history (i32.const 0))
                 (global.set $bit_index (i32.const 0))
-                (if (local.get $is_in_code_section) (then
+                (local.set $ics (i32.and (global.get $use_wasm_model) (local.get $is_in_code_section)))
+                (if (local.get $ics) (then
                     (call $dm_update (local.get $byte))
                 ))
                 (global.set $dis_model_state
-                    (select (i32.add (call $dm_val) (i32.const 1)) (i32.const 0) (local.get $is_in_code_section))
+                    (select (i32.add (call $dm_val) (i32.const 1)) (i32.const 0) (local.get $ics))
                 )
                 (global.set $num_active_context_models
-                    (select (i32.const 42) (i32.const 21) (local.get $is_in_code_section))
+                    (select (i32.const 42) (i32.const 21) (local.get $ics))
                 )
                 (global.set $num_model_outputs
-                    (select (i32.const 138) (i32.const 72) (local.get $is_in_code_section))
+                    (select (i32.const 138) (i32.const 72) (local.get $ics))
                 )
 
                 ;; update active context models
@@ -1603,8 +1613,10 @@
             ;; first step, so let's initialize everything
             (global.set $marker_bit_prob (i32.const 2048))
 
-            (global.set $code_section_start (i32.load (global.get $src_ptr)))
-            (global.set $code_section_end (i32.load offset=4 (global.get $src_ptr)))
+            (if (global.get $use_wasm_model) (then
+                (global.set $code_section_start (i32.load (global.get $src_ptr)))
+                (global.set $code_section_end (i32.load offset=4 (global.get $src_ptr)))
+            ))
             (global.set $js_output_size (i32.load offset=8 (global.get $src_ptr)))
             (global.set $wasm_output_size (i32.load offset=12 (global.get $src_ptr)))
             (global.set $output_size (i32.add (global.get $js_output_size) (global.get $wasm_output_size)))

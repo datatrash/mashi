@@ -297,7 +297,16 @@ impl DisModelContext {
     }
 }
 
+/// Whether the WASM disassembler context model is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextModel {
+    Wasm,
+    None,
+}
+
 pub struct Model {
+    context_model: ContextModel,
+
     histories: Vec<History>,
 
     dis_model: DisModel,
@@ -339,16 +348,23 @@ impl Drop for Model {
 }
 
 impl Model {
-    pub fn new() -> Model {
+    pub fn new(context_model: ContextModel) -> Model {
+        // Without the WASM model, dis_model_state is structurally pinned to 0 (see `update`
+        // below), so a single history/context bank is all that's ever indexed.
+        let num_dis_model_states = match context_model {
+            ContextModel::Wasm => NUM_DIS_MODEL_STATES + 1,
+            ContextModel::None => 1,
+        };
+
         let mut histories = Vec::new();
-        for _ in 0..(NUM_DIS_MODEL_STATES + 1) {
+        for _ in 0..num_dis_model_states {
             histories.push(History::new());
         }
 
         let hash_table_layout = Layout::from_size_align(size_of::<HashTableEntry>() * HASH_ENTRIES, 64).unwrap();
 
         let mut dis_model_contexts = Vec::new();
-        for _ in 0..(NUM_DIS_MODEL_STATES + 1) {
+        for _ in 0..num_dis_model_states {
             dis_model_contexts.push(DisModelContext::new());
         }
 
@@ -368,6 +384,8 @@ impl Model {
         }
 
         Model {
+            context_model,
+
             histories,
 
             dis_model: DisModel::new(),
@@ -577,6 +595,10 @@ impl Model {
 
     // update assumes prob has been called _once_ for the current bit _before_ update has been called!
     pub fn update(&mut self, bit: u32, is_in_code_section: bool) {
+        // Structurally pin dis_model_state to 0 when the WASM model is compiled out, mirroring
+        // the `$use_wasm_model` guard in decompress.wat.
+        let is_in_code_section = is_in_code_section && self.context_model == ContextModel::Wasm;
+
         let dis_model_context = &mut self.dis_model_contexts[self.dis_model_state as usize];
 
         // Update context models
