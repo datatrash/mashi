@@ -41,8 +41,7 @@ successfully compressed and decompressed without Mashi eating any bytes.
 Browsers other than Chrome and FireFox are untested, currently. Feel free to test and report back!
 
 The decompression stub is written in pure WASM and takes about 2.5k when using the WASM context model
-(`--wasm`), or about 2k when it isn't needed (JS-only packing and `--bin`) -- the model's code is compiled
-out of that build entirely, rather than merely left unused.
+(`--wasm`), or about 2k when it isn't needed (JS-only packing and `--bin`).
 
 ### How to hack
 
