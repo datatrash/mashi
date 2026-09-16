@@ -120,7 +120,7 @@ pub fn add_bytes_into_existing_data_section(
     Ok(out.finish())
 }
 
-pub fn pack(wasm_filename: Option<PathBuf>, bin_filename: Option<PathBuf>, js_filename: PathBuf, output_filename: PathBuf) -> anyhow::Result<()> {
+pub fn pack(wasm_filename: Option<PathBuf>, bin_filename: Option<PathBuf>, js_filename: PathBuf, no_progress_bar: bool, output_filename: PathBuf) -> anyhow::Result<()> {
     let js_input = fs::read(&js_filename)?;
 
     // --wasm uses the WASM context model for the best ratio; --bin (or no payload at all, i.e.
@@ -146,7 +146,11 @@ pub fn pack(wasm_filename: Option<PathBuf>, bin_filename: Option<PathBuf>, js_fi
     p.finish_with_message("Done!");
 
     // Create a new WASM module that has the compressed data already inserted in its memory
-    let js_depacker: &[u8] = include_bytes!("../../generated/depacker.js.min");
+    let js_depacker: &[u8] = if no_progress_bar {
+        include_bytes!("../../generated/depacker_noprogress.js.min")
+    } else {
+        include_bytes!("../../generated/depacker.js.min")
+    };
     let decompress_stub: &[u8] = match context_model {
         ContextModel::Wasm => include_bytes!("../../generated/decompress.wasm"),
         ContextModel::None => include_bytes!("../../generated/decompress_bin.wasm"),

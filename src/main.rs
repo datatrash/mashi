@@ -31,6 +31,11 @@ enum Commands {
         #[arg(long = "bin", value_hint = clap::ValueHint::FilePath, conflicts_with = "wasm_filename")]
         bin_filename: Option<PathBuf>,
 
+        /// Don't show a progress bar while depacking. The generated page leaves the document
+        /// untouched and decompresses everything in one go, which makes the depacker smaller.
+        #[arg(long = "no-progress-bar")]
+        no_progress_bar: bool,
+
         /// Output filename
         #[arg(default_value = "index.html")]
         output_filename: PathBuf,
@@ -42,9 +47,9 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Pack {
-            wasm_filename, bin_filename, js_filename, output_filename
+            wasm_filename, bin_filename, js_filename, no_progress_bar, output_filename
         } => {
-            cli::pack(wasm_filename, bin_filename, js_filename, output_filename)?;
+            cli::pack(wasm_filename, bin_filename, js_filename, no_progress_bar, output_filename)?;
         }
     }
 

@@ -52,8 +52,39 @@ fn main() -> anyhow::Result<()> {
     );
 
     println!("cargo::rerun-if-changed=src/cli/depacker.js");
-    cmd!("bun", "build", "src/cli/depacker.js", "--minify", "--outfile=generated/depacker.js.min").run()?;
 
+    // Two variants of the JS depacker, from one source: `PROGRESS` is substituted by bun and the
+    // dead branch is eliminated, so the --no-progress-bar depacker contains no reference to the
+    // document at all.
+    build_depacker(true, "generated/depacker.js.min")?;
+    build_depacker(false, "generated/depacker_noprogress.js.min")?;
+
+    // Same guard as above: if bun ever stops folding the `PROGRESS` define, fail the build rather
+    // than silently shipping the progress bar in the --no-progress-bar depacker.
+    let progress_len = fs::metadata("generated/depacker.js.min")?.len();
+    let noprogress_len = fs::metadata("generated/depacker_noprogress.js.min")?.len();
+    anyhow::ensure!(
+        noprogress_len < progress_len,
+        "generated/depacker_noprogress.js.min ({noprogress_len} bytes) is not smaller than \
+         generated/depacker.js.min ({progress_len} bytes) -- bun may no longer be \
+         substituting and dead-code-eliminating the `PROGRESS` define."
+    );
+
+    Ok(())
+}
+
+/// Minifies one variant of the JS depacker, with the progress bar compiled in or out.
+fn build_depacker(progress: bool, out_path: &str) -> anyhow::Result<()> {
+    cmd!(
+        "bun",
+        "build",
+        "src/cli/depacker.js",
+        "--minify",
+        "--define",
+        format!("PROGRESS={progress}"),
+        format!("--outfile={out_path}")
+    )
+    .run()?;
     Ok(())
 }
 

@@ -22,6 +22,14 @@ if you have an `intro.js` which should receive the raw binary bytes in `intro.bi
 
 `mashi pack intro.js --bin intro.bin out.html`
 
+#### Progress bar
+By default the generated page replaces the document body with a `<progress>` element and updates it while depacking.
+Pass `--no-progress-bar` to leave the document untouched and depack everything in one go instead:
+
+`mashi pack intro.js --wasm intro.wasm --no-progress-bar out.html`
+
+This makes the depacker about 70 bytes smaller. Note that depacking then blocks the main thread, so on a large payload the browser may warn that the page is unresponsive.
+
 #### Output
 The resulting `out.html` can be opened in a browser (with local file access enabled) and will automatically invoke
 your Javascript code, passing in the decompressed payload as a parameter. You can then instantiate the WASM module
