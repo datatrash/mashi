@@ -36,6 +36,15 @@ enum Commands {
         #[arg(long = "no-progress-bar")]
         no_progress_bar: bool,
 
+        /// Write per-byte compression cost files `<PREFIX>.js.heat` and `<PREFIX>.payload.heat`:
+        /// one byte per input byte, holding its cost in 1/16 bits (saturating at 255).
+        #[arg(long = "heatmap", value_name = "PREFIX", value_hint = clap::ValueHint::FilePath)]
+        heatmap_prefix: Option<PathBuf>,
+
+        /// Print where the compressed bits went (JS, payload, WASM code) and the most expensive regions
+        #[arg(long = "report")]
+        report: bool,
+
         /// Output filename
         #[arg(default_value = "index.html")]
         output_filename: PathBuf,
@@ -47,9 +56,9 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Pack {
-            wasm_filename, bin_filename, js_filename, no_progress_bar, output_filename
+            wasm_filename, bin_filename, js_filename, no_progress_bar, heatmap_prefix, report, output_filename
         } => {
-            cli::pack(wasm_filename, bin_filename, js_filename, no_progress_bar, output_filename)?;
+            cli::pack(wasm_filename, bin_filename, js_filename, no_progress_bar, heatmap_prefix, report, output_filename)?;
         }
     }
 

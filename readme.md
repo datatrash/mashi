@@ -30,6 +30,12 @@ Pass `--no-progress-bar` to leave the document untouched and depack everything i
 
 This makes the depacker about 70 bytes smaller. Note that depacking then blocks the main thread, so on a large payload the browser may warn that the page is unresponsive.
 
+#### Finding what compresses badly
+`mashi pack intro.js --wasm intro.wasm --heatmap cost out.html` writes `cost.js.heat` and `cost.payload.heat`.
+Each has one byte per input byte, holding that byte's cost in 1/16 bits (saturating at 255, i.e. 15.9 bits).
+`--report` prints the compressed size of the JS, the payload and the WASM code section, plus the most expensive
+256-byte regions. Use these to see what to reorder or simplify in your input.
+
 #### Output
 The resulting `out.html` can be opened in a browser (with local file access enabled) and will automatically invoke
 your Javascript code, passing in the decompressed payload as a parameter. You can then instantiate the WASM module

@@ -204,7 +204,7 @@ mod tests {
 
         // just a roundtrip of the pure Rust implementation
         let src = include_bytes!("../tests/data/test.wasm").to_vec();
-        let (c, _) = compress(&[], &src, ContextModel::Wasm, |_| ());
+        let (c, _, _) = compress(&[], &src, ContextModel::Wasm, |_| ());
         println!("From {} to {}", src.len(), c.len());
         let (out, _) = decompress(&c, ContextModel::Wasm, |_| ());
         assert_eq!(src, out);
@@ -421,7 +421,7 @@ mod tests {
     }
 
     fn wasm_roundtrip(src: &[u8]) {
-        let (compressed, _) = compress(&[], &src, ContextModel::Wasm, |_| ());
+        let (compressed, _, _) = compress(&[], &src, ContextModel::Wasm, |_| ());
 
         init_log();
 
@@ -465,7 +465,7 @@ mod tests {
     }
 
     fn bin_roundtrip(js_input: &[u8], payload_input: &[u8]) {
-        let (compressed, _) = compress(js_input, payload_input, ContextModel::None, |_| ());
+        let (compressed, _, _) = compress(js_input, payload_input, ContextModel::None, |_| ());
 
         init_log();
 
@@ -514,9 +514,27 @@ mod tests {
     fn test_js_only_is_unaffected_by_context_model() {
         // JS-only input never enters a code section, so dropping the WASM context model must be free: both context models should produce byte-identical compressed output for it.
         let js = include_bytes!("../tests/data/0mix-by-0b5vr-unpacked.js");
-        let (with_wasm_model, _) = compress(js, &[], ContextModel::Wasm, |_| ());
-        let (without_wasm_model, _) = compress(js, &[], ContextModel::None, |_| ());
+        let (with_wasm_model, _, _) = compress(js, &[], ContextModel::Wasm, |_| ());
+        let (without_wasm_model, _, _) = compress(js, &[], ContextModel::None, |_| ());
         assert_eq!(with_wasm_model, without_wasm_model);
+    }
+
+    #[test]
+    fn test_bits_per_byte_sums_to_stream_size() {
+        // A zero block (skipped via the marker bit) followed by real data.
+        let mut payload = vec![0u8; 16384];
+        payload.extend(include_bytes!("../tests/data/add.wasm"));
+        for (js, payload, model) in [
+            (&include_bytes!("../tests/data/0mix-by-0b5vr-unpacked.js")[..], &payload[..], ContextModel::None),
+            (&include_bytes!("../tests/data/add.js")[..], &include_bytes!("../tests/data/add.wasm")[..], ContextModel::Wasm),
+            (&include_bytes!("../tests/data/add.js")[..], &[][..], ContextModel::None),
+        ] {
+            let (compressed, bits_per_byte, _) = compress(js, payload, model, |_| ());
+            assert_eq!(bits_per_byte.len(), js.len() + payload.len());
+            let estimated = bits_per_byte.iter().map(|&b| b as f64).sum::<f64>() / 8.0;
+            let actual = (compressed.len() - 16) as f64;
+            assert!((estimated - actual).abs() < 8.0, "estimated {estimated} vs actual {actual}");
+        }
     }
 
     fn print_tab<T>(tab: &[T], items_per_line: usize) where T: ToBytes {

@@ -18,7 +18,10 @@ struct RangeEncoderState {
     bits_per_byte: Vec<f32>,
 }
 
-pub fn compress<F>(js_input: &[u8], payload_input: &[u8], context_model: ContextModel, mut f: F) -> (Vec<u8>, Vec<f32>)
+/// Compresses `js_input ++ payload_input`. Returns the compressed stream, the cost in bits of every
+/// input byte (summing to the stream size, excluding the 16-byte header), and the WASM code section
+/// as an absolute range into `js_input ++ payload_input` (empty if there is none).
+pub fn compress<F>(js_input: &[u8], payload_input: &[u8], context_model: ContextModel, mut f: F) -> (Vec<u8>, Vec<f32>, std::ops::Range<u64>)
 where
     F: FnMut(usize),
 {
@@ -73,6 +76,8 @@ where
     state.output.extend(0u32.to_le_bytes());
 
     let mut marker_bit_prob = 2048;
+    // Cost of a non-empty block's marker bit, charged to the block's first byte.
+    let mut pending_marker_bits = 0.0;
 
     f(0);
 
@@ -104,6 +109,7 @@ where
             let marker_bit = if is_block_empty { 0 } else { 1 };
             let marker_bit_bits = -((if marker_bit != 0 { marker_bit_prob } else { 4096 - marker_bit_prob } as f64) / 4096.0).log2();
             range_encode_bit(&mut state, marker_bit_prob, marker_bit);
+            pending_marker_bits = if is_block_empty { 0.0 } else { marker_bit_bits };
 
             marker_bit_prob = (marker_bit_prob + if is_block_empty { 1 } else { 4095 }) >> 1;
 
@@ -111,7 +117,7 @@ where
                 byte_index += BLOCK_SIZE;
                 state
                     .bits_per_byte
-                    .extend(&vec![(marker_bit_bits / ((BLOCK_SIZE * 8) as f64)) as f32; BLOCK_SIZE]);
+                    .extend(&vec![(marker_bit_bits / (BLOCK_SIZE as f64)) as f32; BLOCK_SIZE]);
 
                 f(byte_index);
 
@@ -120,7 +126,8 @@ where
         }
 
         let byte = input[byte_index];
-        let mut bits = 0.0;
+        let mut bits = pending_marker_bits;
+        pending_marker_bits = 0.0;
 
         for bit_index in 0..8 {
             let bit = ((byte as u32) >> (7 - bit_index)) & 0x01;
@@ -149,7 +156,7 @@ where
     state.output.as_mut_slice()[8..12].copy_from_slice(&(js_input.len() as u32).to_le_bytes());
     state.output.as_mut_slice()[12..16].copy_from_slice(&(payload_input.len() as u32).to_le_bytes());
 
-    (state.output, state.bits_per_byte)
+    (state.output, state.bits_per_byte, code_section)
 }
 
 fn range_encode_bit(state: &mut RangeEncoderState, prob: u32, bit: u32) {

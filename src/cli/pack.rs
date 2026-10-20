@@ -1,3 +1,4 @@
+use super::report;
 use indicatif::{ProgressBar, ProgressStyle};
 use mashi::{compress, ContextModel};
 use std::io::Write;
@@ -120,7 +121,7 @@ pub fn add_bytes_into_existing_data_section(
     Ok(out.finish())
 }
 
-pub fn pack(wasm_filename: Option<PathBuf>, bin_filename: Option<PathBuf>, js_filename: PathBuf, no_progress_bar: bool, output_filename: PathBuf) -> anyhow::Result<()> {
+pub fn pack(wasm_filename: Option<PathBuf>, bin_filename: Option<PathBuf>, js_filename: PathBuf, no_progress_bar: bool, heatmap_prefix: Option<PathBuf>, report: bool, output_filename: PathBuf) -> anyhow::Result<()> {
     let js_input = fs::read(&js_filename)?;
 
     // --wasm uses the WASM context model for the best ratio; --bin (or no payload at all, i.e.
@@ -140,10 +141,21 @@ pub fn pack(wasm_filename: Option<PathBuf>, bin_filename: Option<PathBuf>, js_fi
     let p = ProgressBar::new(total_length as u64).with_prefix("Compressing...");
     p.set_style(ProgressStyle::with_template("{prefix} [{bar:40.cyan/blue} {pos:>7}/{len:7}] {msg}")?
         .progress_chars("##-"));
-    let (compressed_data, _) = compress(&js_input, &payload_input, context_model, |progress| {
+    let (compressed_data, bits_per_byte, code_section) = compress(&js_input, &payload_input, context_model, |progress| {
         p.set_position(progress as u64);
     });
     p.finish_with_message("Done!");
+
+    if let Some(prefix) = &heatmap_prefix {
+        let (js_bits, payload_bits) = bits_per_byte.split_at(js_input.len());
+        println!("Wrote heatmap: {}", report::write_heatmap(prefix, "js", js_bits)?.display());
+        if !payload_bits.is_empty() {
+            println!("Wrote heatmap: {}", report::write_heatmap(prefix, "payload", payload_bits)?.display());
+        }
+    }
+    if report {
+        report::print_report(js_input.len(), &bits_per_byte, code_section);
+    }
 
     // Create a new WASM module that has the compressed data already inserted in its memory
     let js_depacker: &[u8] = if no_progress_bar {
